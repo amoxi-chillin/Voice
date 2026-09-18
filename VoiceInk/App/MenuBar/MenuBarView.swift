@@ -1,3 +1,4 @@
+import CoreAudio
 import SwiftUI
 
 struct MenuBarView: View {
@@ -43,68 +44,53 @@ struct MenuBarView: View {
 
     private var completedOnboardingMenu: some View {
         Group {
-            Button("Toggle Recorder") {
+            Button(isRecording ? "Stop Dictation" : "Start Dictation") {
                 recorderUIManager.handleToggleRecorderPanelNotification()
             }
 
             Divider()
 
-            Menu {
-                ForEach(modeManager.enabledConfigurations) { config in
-                    Button {
-                        modeManager.setActiveConfiguration(config)
-                    } label: {
-                        let isActive = modeManager.currentEffectiveConfiguration?.id == config.id
-                        Text(isActive ? "\(config.name)  ✓" : config.name)
-                    }
-                }
-
+            Menu(String(format: String(localized: "Mode: %@"), activeModeName)) {
                 if modeManager.enabledConfigurations.isEmpty {
                     Text("No modes available")
-                        .foregroundColor(.secondary)
+                } else {
+                    Picker("Mode", selection: activeModeSelection) {
+                        ForEach(modeManager.enabledConfigurations) { config in
+                            Text(config.name).tag(Optional(config.id))
+                        }
+                    }
+                    .pickerStyle(.inline)
+                    .labelsHidden()
                 }
 
                 Divider()
 
-                Button("Manage Modes") {
-                    showMainWindowAndNavigate(to: "Modes")
+                Button("Manage Modes…") {
+                    showMainWindowAndNavigate(to: .modes)
                 }
 
-                Button("Manage Models") {
-                    showMainWindowAndNavigate(to: "AI Models")
-                }
-            } label: {
-                HStack {
-                    Image(systemName: "sparkles.square.fill.on.square")
-                        .font(.system(size: 11, weight: .medium))
-                    let activeMode = modeManager.currentEffectiveConfiguration
-                    Text(String(format: String(localized: "Mode: %@"), activeMode?.name ?? String(localized: "None")))
-                    Image(systemName: "chevron.up.chevron.down")
-                        .font(.system(size: 10))
+                Button("Manage Models…") {
+                    showMainWindowAndNavigate(to: .models)
                 }
             }
 
-            Menu {
-                ForEach(audioDeviceManager.availableDevices, id: \.id) { device in
-                    Button {
-                        audioDeviceManager.selectDeviceAndSwitchToCustomMode(id: device.id)
-                    } label: {
-                        let isActive = audioDeviceManager.getCurrentDevice() == device.id
-                        Text(isActive ? "\(device.name)  ✓" : device.name)
-                    }
-                }
-
+            Menu(String(format: String(localized: "Audio Input: %@"), currentDeviceName)) {
                 if audioDeviceManager.availableDevices.isEmpty {
                     Text("No devices available")
-                        .foregroundColor(.secondary)
+                } else {
+                    Picker("Audio Input", selection: audioInputSelection) {
+                        ForEach(audioDeviceManager.availableDevices, id: \.id) { device in
+                            Text(device.name).tag(device.id)
+                        }
+                    }
+                    .pickerStyle(.inline)
+                    .labelsHidden()
                 }
-            } label: {
-                HStack {
-                    Image(systemName: "mic.fill")
-                        .font(.system(size: 11, weight: .medium))
-                    Text("Audio Input")
-                    Image(systemName: "chevron.up.chevron.down")
-                        .font(.system(size: 10))
+
+                Divider()
+
+                Button("Audio Settings…") {
+                    SettingsWindowPresenter.open(.audio)
                 }
             }
 
@@ -129,15 +115,7 @@ struct MenuBarView: View {
             }
             .keyboardShortcut("h", modifiers: [.command, .shift])
 
-            Button(menuBarManager.isMenuBarOnly ? "Show Dock Icon" : "Hide Dock Icon") {
-                let shouldShowMainWindow = menuBarManager.isMenuBarOnly
-                menuBarManager.toggleMenuBarOnly()
-
-                if shouldShowMainWindow {
-                    showMainWindow()
-                }
-            }
-            .keyboardShortcut("d", modifiers: [.command, .shift])
+            Divider()
 
             Toggle(
                 "Launch at Login",
@@ -148,22 +126,74 @@ struct MenuBarView: View {
             )
             .disabled(launchAtLoginManager.isUpdating)
 
+            Toggle(
+                "Hide Dock Icon",
+                isOn: Binding(
+                    get: { menuBarManager.isMenuBarOnly },
+                    set: { isMenuBarOnly in
+                        menuBarManager.isMenuBarOnly = isMenuBarOnly
+                        if !isMenuBarOnly {
+                            showMainWindow()
+                        }
+                    }
+                )
+            )
+            .keyboardShortcut("d", modifiers: [.command, .shift])
+
             Divider()
 
-            Button("Settings") {
-                showMainWindowAndNavigate(to: "Settings")
+            Button("Open VoiceInk") {
+                showMainWindow()
+            }
+
+            Button("Settings…") {
+                SettingsWindowPresenter.open()
             }
             .keyboardShortcut(",", modifiers: .command)
 
-            Button("Check for Updates") {
+            Button("Check for Updates…") {
                 updaterViewModel.checkForUpdates()
             }
             .disabled(!updaterViewModel.canCheckForUpdates)
 
+            Divider()
+
             Button("Quit VoiceInk") {
                 NSApplication.shared.terminate(nil)
             }
+            .keyboardShortcut("q", modifiers: .command)
         }
+    }
+
+    private var isRecording: Bool {
+        engine.recordingState == .recording
+    }
+
+    private var activeModeName: String {
+        modeManager.currentEffectiveConfiguration?.name ?? String(localized: "None")
+    }
+
+    private var activeModeSelection: Binding<UUID?> {
+        Binding(
+            get: { modeManager.currentEffectiveConfiguration?.id },
+            set: { id in
+                guard let config = modeManager.enabledConfigurations.first(where: { $0.id == id }) else { return }
+                modeManager.setActiveConfiguration(config)
+            }
+        )
+    }
+
+    private var currentDeviceName: String {
+        let currentID = audioDeviceManager.getCurrentDevice()
+        return audioDeviceManager.availableDevices.first { $0.id == currentID }?.name
+            ?? String(localized: "None")
+    }
+
+    private var audioInputSelection: Binding<AudioDeviceID> {
+        Binding(
+            get: { audioDeviceManager.getCurrentDevice() },
+            set: { audioDeviceManager.selectDeviceAndSwitchToCustomMode(id: $0) }
+        )
     }
 
     private func showMainWindow() {
@@ -179,7 +209,7 @@ struct MenuBarView: View {
         }
     }
 
-    private func showMainWindowAndNavigate(to destination: String) {
+    private func showMainWindowAndNavigate(to destination: ViewType) {
         mainWindowNavigation.navigate(to: destination)
         showMainWindow()
     }

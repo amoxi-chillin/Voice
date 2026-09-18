@@ -370,8 +370,8 @@ struct VoiceInkApp: App {
                         .environmentObject(transcriptionModelManager)
                         .environmentObject(aiService)
                         .environmentObject(enhancementService)
-                        .frame(width: AppWindowLayout.width)
-                        .frame(minHeight: AppWindowLayout.minimumHeight)
+                        .frame(width: AppWindowLayout.onboardingWidth)
+                        .frame(minHeight: AppWindowLayout.onboardingMinimumHeight)
                         .background(
                             WindowAccessor { window in
                                 WindowManager.shared.configureWindow(window)
@@ -387,15 +387,29 @@ struct VoiceInkApp: App {
                 licenseViewModel.refreshLicenseState()
             }
         }
-        .windowStyle(.hiddenTitleBar)
-        .defaultSize(width: AppWindowLayout.width, height: AppWindowLayout.minimumHeight)
-        .windowResizability(.contentSize)
+        .defaultSize(width: AppWindowLayout.defaultWidth, height: AppWindowLayout.defaultHeight)
+        .windowResizability(.contentMinSize)
         .commands {
             CommandGroup(replacing: .newItem) {}
 
             CommandGroup(after: .appInfo) {
                 CheckForUpdatesView(updaterViewModel: updaterViewModel)
             }
+
+            SidebarCommands()
+        }
+
+        Settings {
+            SettingsWindowView()
+                .environmentObject(engine)
+                .environmentObject(transcriptionModelManager)
+                .environmentObject(recorderUIManager)
+                .environmentObject(recordingShortcutManager)
+                .environmentObject(updaterViewModel)
+                .environmentObject(menuBarManager)
+                .environmentObject(aiService)
+                .environmentObject(enhancementService)
+                .modelContainer(container)
         }
 
         MenuBarExtra(isInserted: $showMenuBarIcon) {
@@ -421,6 +435,7 @@ struct VoiceInkApp: App {
 
             Image(nsImage: image)
                 .background(MainWindowRequestBridge(menuBarManager: menuBarManager))
+                .background(SettingsRequestBridge())
         }
         .menuBarExtraStyle(.menu)
 

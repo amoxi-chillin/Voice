@@ -56,37 +56,34 @@ struct CustomSoundSettingsView: View {
             .fixedSize()
             .help("Select sound")
 
-            Button {
+            Button("Test", systemImage: "play.fill") {
                 if type == .start {
                     SoundManager.shared.playStartSound()
                 } else {
                     SoundManager.shared.playStopSound()
                 }
-            } label: {
-                Image(systemName: "play.fill")
             }
+            .labelStyle(.iconOnly)
             .buttonStyle(.borderless)
             .disabled(!isEnabled)
             .help("Test")
 
-            Button {
+            Button("Choose Sound File…", systemImage: "folder") {
                 selectSound(for: type)
-            } label: {
-                Image(systemName: "folder")
             }
+            .labelStyle(.iconOnly)
             .buttonStyle(.borderless)
-            .help("Choose")
+            .help("Choose Sound File…")
 
             if !customSoundManager.isDefaultSelection(for: type) {
-                Button {
+                Button("Reset", systemImage: "arrow.uturn.backward") {
                     if !isEnabled || isCustom {
                         customSoundManager.resetSoundToDefault(for: type)
                     } else {
                         customSoundManager.selectBuiltInSound(type.defaultBuiltInSound, for: type)
                     }
-                } label: {
-                    Image(systemName: "arrow.uturn.backward")
                 }
+                .labelStyle(.iconOnly)
                 .buttonStyle(.borderless)
                 .help("Reset")
             }

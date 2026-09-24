@@ -105,7 +105,7 @@ final class TranscriptionDelivery {
             return
         }
 
-        let commandText = deliverableText(from: text)
+        let commandText = text
         SoundManager.shared.playStopSound()
         await actions.dismiss()
 
@@ -164,7 +164,7 @@ final class TranscriptionDelivery {
     }
 
     private func paste(_ text: String, output: OutputRuntimeConfiguration, actions: Actions) async {
-        let textToPaste = deliverableText(from: text)
+        let textToPaste = text
         let appendSpace = UserDefaults.standard.bool(forKey: "AppendTrailingSpace")
         let pastedText = textToPaste + (appendSpace ? " " : "")
         SoundManager.shared.playStopSound()
@@ -204,7 +204,7 @@ final class TranscriptionDelivery {
         SoundManager.shared.playStopSound()
         await actions.dismiss()
 
-        let didCopy = ClipboardManager.setClipboard(deliverableText(from: text))
+        let didCopy = ClipboardManager.setClipboard(text)
         logger.notice("Target app changed before delivery; copied instead of pasting didCopy=\(didCopy, privacy: .public)")
         NotificationManager.shared.showNotification(
             title: didCopy
@@ -213,17 +213,5 @@ final class TranscriptionDelivery {
             type: didCopy ? .info : .warning,
             duration: 6.0
         )
-    }
-
-    private func deliverableText(from text: String) -> String {
-        var textToDeliver = text
-        if let restrictionMessage = LicenseViewModel.shared.usageRestrictionMessage {
-            textToDeliver = """
-                \(restrictionMessage)
-                \n\(textToDeliver)
-                """
-        }
-
-        return textToDeliver
     }
 }

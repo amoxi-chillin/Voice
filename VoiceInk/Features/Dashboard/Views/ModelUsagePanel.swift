@@ -10,8 +10,6 @@ struct ModelUsagePanel: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } header: {
             header
-        } footer: {
-            RecommendedModelsFooter()
         }
     }
 
@@ -33,27 +31,6 @@ struct ModelUsagePanel: View {
         }
         .padding(.horizontal, 20)
         .frame(height: QuickPanelMetrics.headerHeight)
-    }
-}
-
-struct RecommendedModelsFooter: View {
-    var body: some View {
-        HStack {
-            Spacer()
-
-            Button(action: ModelLinks.openRecommendedModels) {
-                ModelActionLabel(
-                    title: "Recommended Models",
-                    icon: "sparkles",
-                    isPrimary: true
-                )
-            }
-            .buttonStyle(.plain)
-            .fixedSize(horizontal: true, vertical: true)
-            .help(String(localized: "Open recommended AI models"))
-        }
-        .padding(.horizontal, 20)
-        .frame(height: QuickPanelMetrics.footerHeight)
     }
 }
 

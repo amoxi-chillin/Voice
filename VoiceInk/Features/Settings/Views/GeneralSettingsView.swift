@@ -6,7 +6,6 @@ struct GeneralSettingsView: View {
     @EnvironmentObject private var recorderUIManager: RecorderUIManager
     @ObservedObject private var launchAtLoginManager = LaunchAtLoginManager.shared
     @AppStorage(OnboardingSettings.completedV2Key) private var hasCompletedOnboardingV2 = true
-    @AppStorage("enableAnnouncements") private var enableAnnouncements = true
     @AppStorage(AppAppearancePreference.userDefaultsKey) private var appAppearancePreference = AppAppearancePreference
         .system
     @AppStorage(AppLanguagePreference.userDefaultsKey) private var appLanguagePreference = AppLanguagePreference
@@ -74,28 +73,25 @@ struct GeneralSettingsView: View {
                 }
             }
 
-            Section("Updates") {
-                Toggle(
-                    "Automatically Check for Updates",
-                    isOn: Binding(
-                        get: { updaterViewModel.checksForUpdatesWhenDashboardAppears },
-                        set: { updaterViewModel.setChecksForUpdatesWhenDashboardAppears($0) }
-                    ))
+            if UpdaterViewModel.isUpdateFeedConfigured {
+                Section("Updates") {
+                    Toggle(
+                        "Automatically Check for Updates",
+                        isOn: Binding(
+                            get: { updaterViewModel.checksForUpdatesWhenDashboardAppears },
+                            set: { updaterViewModel.setChecksForUpdatesWhenDashboardAppears($0) }
+                        ))
 
-                Toggle("Show Announcements", isOn: $enableAnnouncements)
-                    .onChange(of: enableAnnouncements) { _, newValue in
-                        if newValue {
-                            AnnouncementsService.shared.start()
-                        } else {
-                            AnnouncementsService.shared.stop()
+                    LabeledContent(String(format: String(localized: "Version %@"), appVersion)) {
+                        Button("Check Now") {
+                            updaterViewModel.checkForUpdates()
                         }
+                        .disabled(!updaterViewModel.canCheckForUpdates)
                     }
-
-                LabeledContent(String(format: String(localized: "Version %@"), appVersion)) {
-                    Button("Check Now") {
-                        updaterViewModel.checkForUpdates()
-                    }
-                    .disabled(!updaterViewModel.canCheckForUpdates)
+                }
+            } else {
+                Section {
+                    LabeledContent("Version", value: appVersion)
                 }
             }
 

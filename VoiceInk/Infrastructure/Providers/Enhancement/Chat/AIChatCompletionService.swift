@@ -52,7 +52,7 @@ extension AIService {
                 reasoning: policy.reasoning,
                 provider: policy.provider,
                 includeRouterMetadata: true,
-                appReferer: URL(string: "https://tryvoiceink.com"),
+                appReferer: URL(string: "https://github.com/amoxi-chillin/Voice"),
                 appTitle: "VoiceInk",
                 timeout: timeout
             )

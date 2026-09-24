@@ -10,8 +10,6 @@ struct ModelPerformancePanel: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } header: {
             header
-        } footer: {
-            RecommendedModelsFooter()
         }
     }
 

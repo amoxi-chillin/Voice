@@ -244,7 +244,7 @@ struct WordReplacementInfoPopover: View {
                     .font(.subheadline)
                     .foregroundColor(.secondary)
 
-                Text("Voicing, Voice ink, Voiceing")
+                Text("metro nidazole, metro nida zole, metronide azole")
                     .font(.callout)
                     .padding(8)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -276,7 +276,7 @@ struct WordReplacementInfoPopover: View {
                         Text("Replacement:")
                             .font(.caption)
                             .foregroundColor(.secondary)
-                        Text(verbatim: "https://tryvoiceink.com")
+                        Text(verbatim: "https://example.com")
                             .font(.callout)
                     }
                 }
@@ -290,7 +290,7 @@ struct WordReplacementInfoPopover: View {
                         Text("Original:")
                             .font(.caption)
                             .foregroundColor(.secondary)
-                        Text("Voicing, Voice ink")
+                        Text("metro nidazole, metro nida zole")
                             .font(.callout)
                     }
 
@@ -302,7 +302,7 @@ struct WordReplacementInfoPopover: View {
                         Text("Replacement:")
                             .font(.caption)
                             .foregroundColor(.secondary)
-                        Text("VoiceInk")
+                        Text(verbatim: "metronidazole")
                             .font(.callout)
                     }
                 }

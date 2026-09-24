@@ -454,7 +454,7 @@ final class AutoLearnAIReviewer: @unchecked Sendable {
 
         Use context to identify user-specific entities. “Call”, “email”, “ask”, “invite”, or “send to” supports interpreting the adjacent text as a personal name. For a phonetically plausible personal name, spelling, apostrophe, spacing, hyphenation, and diacritic corrections are learnable—not formatting-only edits. A personal name remains learnable when it belongs to a well-known or public person. Labels such as “project”, “internal”, “repository”, “account”, “tenant”, or “pipeline” similarly support a user-specific entity. Context never substitutes for phonetic evidence or permits a semantic rewrite.
 
-        Do not learn ordinary words, brands, products, technologies, places, or organizations. Examples include Microsoft, Apple, Google, Xcode, Markdown, React, PostgreSQL, and GitHub. VoiceInk is user-specific and may be learned. Outside the user-specific contexts above, capitalization or proper-noun appearance alone is insufficient; when uncertain, reject.
+        Do not learn ordinary words, brands, products, technologies, places, or organizations. Examples include Microsoft, Apple, Google, Xcode, Markdown, React, PostgreSQL, and GitHub. Outside the user-specific contexts above, capitalization or proper-noun appearance alone is insufficient; when uncertain, reject.
 
         Reject case-only changes and partial unsafe mappings.
 

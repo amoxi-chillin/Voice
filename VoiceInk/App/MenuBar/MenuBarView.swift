@@ -151,10 +151,12 @@ struct MenuBarView: View {
             }
             .keyboardShortcut(",", modifiers: .command)
 
-            Button("Check for Updates…") {
-                updaterViewModel.checkForUpdates()
+            if UpdaterViewModel.isUpdateFeedConfigured {
+                Button("Check for Updates…") {
+                    updaterViewModel.checkForUpdates()
+                }
+                .disabled(!updaterViewModel.canCheckForUpdates)
             }
-            .disabled(!updaterViewModel.canCheckForUpdates)
 
             Divider()
 

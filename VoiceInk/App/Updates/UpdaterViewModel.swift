@@ -25,6 +25,13 @@ final class UpdaterViewModel: NSObject, ObservableObject, SPUUpdaterDelegate {
         userDriverDelegate: nil
     )
 
+    /// Updates need an appcast feed and signing key in Info.plist. This fork ships without one,
+    /// so it never checks the original app's feed and never offers to install its builds.
+    static let isUpdateFeedConfigured: Bool = {
+        let feedURL = Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") as? String
+        return feedURL?.isEmpty == false
+    }()
+
     @Published var canCheckForUpdates = false
     @Published private(set) var checksForUpdatesWhenDashboardAppears = false
     @Published private(set) var availableUpdate: AvailableUpdate?
@@ -32,8 +39,11 @@ final class UpdaterViewModel: NSObject, ObservableObject, SPUUpdaterDelegate {
     override init() {
         let defaults = UserDefaults.standard
         self.defaults = defaults
-        checksForUpdatesWhenDashboardAppears = Self.initialAutomaticCheckPreference(in: defaults)
+        checksForUpdatesWhenDashboardAppears =
+            Self.isUpdateFeedConfigured && Self.initialAutomaticCheckPreference(in: defaults)
         super.init()
+
+        guard Self.isUpdateFeedConfigured else { return }
 
         let updater = updaterController.updater
 
@@ -49,7 +59,7 @@ final class UpdaterViewModel: NSObject, ObservableObject, SPUUpdaterDelegate {
     }
 
     func setChecksForUpdatesWhenDashboardAppears(_ value: Bool) {
-        guard checksForUpdatesWhenDashboardAppears != value else { return }
+        guard Self.isUpdateFeedConfigured, checksForUpdatesWhenDashboardAppears != value else { return }
 
         checksForUpdatesWhenDashboardAppears = value
         defaults.set(value, forKey: DefaultsKey.automaticUpdateChecks)
@@ -62,7 +72,7 @@ final class UpdaterViewModel: NSObject, ObservableObject, SPUUpdaterDelegate {
     }
 
     func checkForUpdatesIfDue() {
-        guard checksForUpdatesWhenDashboardAppears else { return }
+        guard Self.isUpdateFeedConfigured, checksForUpdatesWhenDashboardAppears else { return }
 
         let updater = updaterController.updater
         guard !updater.sessionInProgress else { return }
@@ -156,7 +166,9 @@ struct CheckForUpdatesView: View {
     @ObservedObject var updaterViewModel: UpdaterViewModel
 
     var body: some View {
-        Button("Check for Updates…", action: updaterViewModel.checkForUpdates)
-            .disabled(!updaterViewModel.canCheckForUpdates)
+        if UpdaterViewModel.isUpdateFeedConfigured {
+            Button("Check for Updates…", action: updaterViewModel.checkForUpdates)
+                .disabled(!updaterViewModel.canCheckForUpdates)
+        }
     }
 }

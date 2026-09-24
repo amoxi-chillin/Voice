@@ -78,14 +78,6 @@ struct InsightPeriodPicker: View {
     }
 }
 
-enum ModelLinks {
-    static func openRecommendedModels() {
-        if let url = URL(string: "https://tryvoiceink.com/docs/recommended-models") {
-            NSWorkspace.shared.open(url)
-        }
-    }
-}
-
 struct ModelActionLabel: View {
     let title: LocalizedStringKey
     let icon: String

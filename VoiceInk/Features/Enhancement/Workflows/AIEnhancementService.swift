@@ -447,15 +447,34 @@ class AIEnhancementService: ObservableObject {
     func addPrompt(
         title: String,
         promptText: String,
-        useSystemInstructions: Bool = true
+        useSystemInstructions: Bool = true,
+        outputTemplate: String = "",
+        styleExamples: String = ""
     ) -> CustomPrompt {
         let newPrompt = CustomPrompt(
             title: title,
             promptText: promptText,
-            useSystemInstructions: useSystemInstructions
+            useSystemInstructions: useSystemInstructions,
+            outputTemplate: outputTemplate,
+            styleExamples: styleExamples
         )
         customPrompts.append(newPrompt)
         return newPrompt
+    }
+
+    /// Adds a built-in template prompt under its fixed ID if the user doesn't have it yet.
+    @discardableResult
+    func ensureTemplatePrompt(id: UUID) -> CustomPrompt? {
+        if let existingPrompt = customPrompts.first(where: { $0.id == id }) {
+            return existingPrompt
+        }
+
+        guard let seedPrompt = PromptTemplates.seedPrompts.first(where: { $0.id == id }) else {
+            return nil
+        }
+
+        customPrompts.append(seedPrompt)
+        return seedPrompt
     }
 
     func updatePrompt(_ prompt: CustomPrompt) {

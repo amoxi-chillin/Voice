@@ -25,6 +25,9 @@ struct PromptEditorView: View {
     @State private var title: String
     @State private var promptText: String
     @State private var useSystemInstructions: Bool
+    @State private var outputTemplate: String
+    @State private var styleExamples: String
+    @State private var isReferenceExpanded: Bool
     @State private var showDeleteConfirmation = false
 
     private var saveButtonTitle: LocalizedStringKey {
@@ -62,10 +65,17 @@ struct PromptEditorView: View {
             _title = State(initialValue: "")
             _promptText = State(initialValue: "")
             _useSystemInstructions = State(initialValue: true)
+            _outputTemplate = State(initialValue: "")
+            _styleExamples = State(initialValue: "")
+            _isReferenceExpanded = State(initialValue: false)
         case .edit(let prompt):
             _title = State(initialValue: prompt.title)
             _promptText = State(initialValue: prompt.promptText)
             _useSystemInstructions = State(initialValue: prompt.useSystemInstructions)
+            _outputTemplate = State(initialValue: prompt.outputTemplate)
+            _styleExamples = State(initialValue: prompt.styleExamples)
+            _isReferenceExpanded = State(
+                initialValue: !prompt.outputTemplate.isEmpty || !prompt.styleExamples.isEmpty)
         }
     }
 
@@ -82,6 +92,7 @@ struct PromptEditorView: View {
                     }
 
                     instructionsEditor
+                    referenceSection
                     systemTemplateToggle
                 }
                 .padding(.horizontal, 20)
@@ -159,6 +170,9 @@ struct PromptEditorView: View {
                     title = template.title
                     promptText = template.promptText
                     useSystemInstructions = template.useSystemInstructions
+                    outputTemplate = template.outputTemplate
+                    styleExamples = template.styleExamples
+                    isReferenceExpanded = !template.outputTemplate.isEmpty || !template.styleExamples.isEmpty
                 } label: {
                     Text(template.title)
                 }
@@ -174,23 +188,50 @@ struct PromptEditorView: View {
     }
 
     private var instructionsEditor: some View {
-        ZStack(alignment: .topLeading) {
-            TextEditor(text: $promptText)
-                .font(.system(.body, design: .monospaced))
-                .frame(height: 440)
-                .scrollContentBackground(.hidden)
-                .padding(8)
-                .background(AppCardBackground(cornerRadius: 8))
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+        PromptTextEditor(
+            text: $promptText,
+            placeholder: "Write prompt instructions",
+            height: isReferenceExpanded ? 300 : 440
+        )
+    }
 
-            if promptText.isEmpty {
-                Text("Write prompt instructions")
-                    .font(.system(.body, design: .monospaced))
-                    .foregroundStyle(.tertiary)
-                    .padding(.horizontal, 14)
-                    .padding(.top, 10)
-                    .allowsHitTesting(false)
+    private var referenceSection: some View {
+        DisclosureGroup(isExpanded: $isReferenceExpanded) {
+            VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 4) {
+                        Text("Output Template")
+                            .font(.system(size: 13, weight: .medium))
+                        InfoTip(
+                            "The layout the result should follow, such as your note's section headings in order. Text in [square brackets] is treated as guidance for that section."
+                        )
+                    }
+                    PromptTextEditor(
+                        text: $outputTemplate,
+                        placeholder: "Chief Complaint:\nHPI:\nExam:\nAssessment and Plan:",
+                        height: 150
+                    )
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 4) {
+                        Text("Style Examples")
+                            .font(.system(size: 13, weight: .medium))
+                        InfoTip(
+                            "Paste one to three finished examples written the way you want results to read. They are sent with every request as a style reference, so remove names, dates of birth, and other identifiers first."
+                        )
+                    }
+                    PromptTextEditor(
+                        text: $styleExamples,
+                        placeholder: "Paste de-identified examples of finished notes",
+                        height: 220
+                    )
+                }
             }
+            .padding(.top, 10)
+        } label: {
+            Text("Output Template & Style Examples")
+                .font(.system(size: 13, weight: .medium))
         }
     }
 
@@ -235,17 +276,48 @@ struct PromptEditorView: View {
             return enhancementService.addPrompt(
                 title: title,
                 promptText: promptText,
-                useSystemInstructions: useSystemInstructions
+                useSystemInstructions: useSystemInstructions,
+                outputTemplate: outputTemplate,
+                styleExamples: styleExamples
             )
         case .edit(let prompt):
             let updatedPrompt = CustomPrompt(
                 id: prompt.id,
                 title: title,
                 promptText: promptText,
-                useSystemInstructions: useSystemInstructions
+                useSystemInstructions: useSystemInstructions,
+                outputTemplate: outputTemplate,
+                styleExamples: styleExamples
             )
             enhancementService.updatePrompt(updatedPrompt)
             return updatedPrompt
+        }
+    }
+}
+
+private struct PromptTextEditor: View {
+    @Binding var text: String
+    let placeholder: LocalizedStringKey
+    let height: CGFloat
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            TextEditor(text: $text)
+                .font(.system(.body, design: .monospaced))
+                .frame(height: height)
+                .scrollContentBackground(.hidden)
+                .padding(8)
+                .background(AppCardBackground(cornerRadius: 8))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+
+            if text.isEmpty {
+                Text(placeholder)
+                    .font(.system(.body, design: .monospaced))
+                    .foregroundStyle(.tertiary)
+                    .padding(.horizontal, 14)
+                    .padding(.top, 10)
+                    .allowsHitTesting(false)
+            }
         }
     }
 }

@@ -5,7 +5,12 @@ final class MediaController: ObservableObject {
 
     static let shared = MediaController()
 
-    private var didMuteAudio = false
+    private static let didMuteSystemAudioKey = "didMuteSystemAudioForRecording"
+
+    // Persisted so a crash or forced quit during a recording can't leave the Mac muted.
+    private var didMuteAudio = false {
+        didSet { UserDefaults.standard.set(didMuteAudio, forKey: Self.didMuteSystemAudioKey) }
+    }
     private var wasAudioMutedBeforeRecording = false
     private var unmuteTask: Task<Void, Never>?
     private var muteGeneration: Int = 0
@@ -72,6 +77,28 @@ final class MediaController: ObservableObject {
 
         unmuteTask = task
         await task.value
+    }
+
+    /// Unmutes right away, skipping the resumption delay, when the app quits during or just after a recording.
+    func restoreSystemAudioBeforeTermination() {
+        unmuteTask?.cancel()
+        unmuteTask = nil
+        muteGeneration += 1
+
+        if didMuteAudio && !wasAudioMutedBeforeRecording {
+            _ = setSystemMuted(false)
+        }
+        didMuteAudio = false
+    }
+
+    /// Unmutes system audio that a previous run muted for recording but never restored.
+    func restoreSystemAudioAfterUnexpectedExit() {
+        guard UserDefaults.standard.bool(forKey: Self.didMuteSystemAudioKey) else { return }
+
+        if isSystemAudioMuted() {
+            _ = setSystemMuted(false)
+        }
+        UserDefaults.standard.removeObject(forKey: Self.didMuteSystemAudioKey)
     }
 
     private func getDefaultOutputDevice() -> AudioDeviceID? {

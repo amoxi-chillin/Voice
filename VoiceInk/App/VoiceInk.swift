@@ -39,6 +39,8 @@ struct VoiceInkApp: App {
     @StateObject private var prewarmService: ModelPrewarmService
 
     init() {
+        let launchDate = Date()
+
         // Disable HTTP response caching — prevents API responses from being stored in Cache.db
         URLCache.shared = URLCache(memoryCapacity: 0, diskCapacity: 0)
 
@@ -174,6 +176,7 @@ struct VoiceInkApp: App {
         _prewarmService = StateObject(wrappedValue: prewarmService)
 
         appDelegate.menuBarManager = menuBarManager
+        appDelegate.engine = engine
 
         // Ensure no lingering recording state from previous runs
         Task {
@@ -185,8 +188,16 @@ struct VoiceInkApp: App {
         let statsMigrationTask = SessionMetricMigrationService.shared.runStatsMigrationIfNeeded(
             modelContainer: resolvedContainer)
         let mainContext = resolvedContainer.mainContext
+        let recordingsDirectory = engine.recordingsDirectory
         Task { @MainActor in
             await statsMigrationTask?.value
+            // Recover before orphan cleanup so interrupted recordings aren't deleted as orphans.
+            let recoveredTranscriptions = InterruptedRecordingRecovery.recover(
+                modelContext: mainContext,
+                recordingsDirectory: recordingsDirectory,
+                launchDate: launchDate
+            )
+            Self.showRecoveredRecordingsNotification(for: recoveredTranscriptions)
             TranscriptionAutoCleanupService.shared.startMonitoring(modelContext: mainContext)
 
             let tokenBackfillTask = SessionMetricMigrationService.shared.runEnhancementTokenBackfillIfNeeded(
@@ -456,6 +467,23 @@ struct VoiceInkApp: App {
                 actionButton: (String(localized: "Manage Modes"), ModeSetupNavigator.openModesSettings)
             )
         }
+    }
+
+    @MainActor
+    private static func showRecoveredRecordingsNotification(for transcriptions: [Transcription]) {
+        // Transcript auto-delete removes recoveries older than its retention period right after launch.
+        let retentionCutoff = TranscriptionAutoCleanupService.retentionCutoff()
+        let count = transcriptions.filter { transcription in
+            retentionCutoff.map { transcription.timestamp >= $0 } ?? true
+        }.count
+        guard count > 0 else { return }
+
+        NotificationManager.shared.showNotification(
+            title: String(localized: "\(count) interrupted recordings saved to History"),
+            type: .warning,
+            duration: 7.0,
+            actionButton: (String(localized: "Open History"), HistoryNavigator.openHistory)
+        )
     }
 
     private static func openAccessibilitySettings() {

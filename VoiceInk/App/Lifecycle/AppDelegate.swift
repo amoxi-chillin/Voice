@@ -4,9 +4,40 @@ import UniformTypeIdentifiers
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     weak var menuBarManager: MenuBarManager?
+    weak var engine: VoiceInkEngine?
+
+    private var isTerminationReplyPending = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        MediaController.shared.restoreSystemAudioAfterUnexpectedExit()
         menuBarManager?.applyActivationPolicy()
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let engine, engine.hasActiveRecording else { return .terminateNow }
+
+        // Close the recording file before quitting so the dictation can be retranscribed on next launch.
+        isTerminationReplyPending = true
+        Task { @MainActor in
+            await engine.finishRecordingForTermination()
+            self.replyToPendingTermination()
+        }
+        // Never hold up quit or logout if stopping the recorder hangs.
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(5))
+            self.replyToPendingTermination()
+        }
+        return .terminateLater
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        MediaController.shared.restoreSystemAudioBeforeTermination()
+    }
+
+    private func replyToPendingTermination() {
+        guard isTerminationReplyPending else { return }
+        isTerminationReplyPending = false
+        NSApp.reply(toApplicationShouldTerminate: true)
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {

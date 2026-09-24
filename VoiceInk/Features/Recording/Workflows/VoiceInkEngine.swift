@@ -105,6 +105,8 @@ class VoiceInkEngine: NSObject, ObservableObject {
     private var activeRecordingContextStore: RecordingContextSnapshotStore?
     private var activeRecordingContextTasks: [Task<Void, Never>] = []
     private var voiceInkRefinePreparationTask: Task<Void, Never>?
+    /// Pending History record for the recording in progress, saved before recording stops.
+    private var activeRecordingTranscription: Transcription?
 
     let recorder = Recorder()
     var recordedFile: URL? = nil
@@ -191,15 +193,8 @@ class VoiceInkEngine: NSObject, ObservableObject {
 
             if let recordedFile {
                 if !shouldCancelRecording {
-                    let transcription = makeRecordingTranscription(
-                        for: recordedFile,
-                        text: "",
-                        duration: 0,
-                        transcriptionStatus: .pending
-                    )
-                    modelContext.insert(transcription)
-                    try? modelContext.save()
-                    NotificationCenter.default.post(name: .transcriptionCreated, object: transcription)
+                    let transcription =
+                        takeActiveRecordingTranscription() ?? insertPendingTranscription(for: recordedFile)
 
                     await runPipeline(
                         on: transcription,
@@ -210,6 +205,7 @@ class VoiceInkEngine: NSObject, ObservableObject {
                     await finishActiveRecorderCancellation()
                 }
             } else {
+                discardActiveRecordingTranscription()
                 cancelCurrentSession()
                 if !shouldCancelRecording {
                     logger.error("❌ No recorded file found after stopping recording")
@@ -321,6 +317,9 @@ class VoiceInkEngine: NSObject, ObservableObject {
                                 return
                             }
 
+                            // Save the History record now so a quit or crash mid-recording stays recoverable.
+                            self.activeRecordingTranscription = self.insertPendingTranscription(for: permanentURL)
+
                             if self.serviceRegistry.shouldUseRealtimeTranscription(for: transcriptionConfiguration) {
                                 let session = self.serviceRegistry.createSession(
                                     for: transcriptionConfiguration,
@@ -401,6 +400,7 @@ class VoiceInkEngine: NSObject, ObservableObject {
                                 await self.recorder.stopRecording()
                             }
                             self.cancelCurrentSession()
+                            self.discardActiveRecordingTranscription()
                             if let recordedFile = self.recordedFile {
                                 try? FileManager.default.removeItem(at: recordedFile)
                             }
@@ -690,9 +690,34 @@ class VoiceInkEngine: NSObject, ObservableObject {
         activePipelineUseCase = .newSession
         clearActiveRecordingContext()
         await recorder.stopRecording()
+        // A pending record left here is recovered on the next launch.
+        activeRecordingTranscription = nil
         recordedFile = nil
         recordingState = .idle
         await cleanupResources()
+    }
+
+    var hasActiveRecording: Bool {
+        recordingState == .starting || recordingState == .recording
+    }
+
+    /// Closes the recording file when the app quits or the user logs out, so its audio stays
+    /// playable and is offered for retranscription on the next launch.
+    func finishRecordingForTermination() async {
+        let wasRecording = recordingState == .recording
+        guard hasActiveRecording else { return }
+
+        activeRecordingStartID = nil
+        clearActiveRecordingContext()
+        cancelCurrentSession()
+        await recorder.stopRecording()
+
+        if wasRecording, activeRecordingTranscription == nil, let recordedFile {
+            _ = insertPendingTranscription(for: recordedFile)
+        }
+        activeRecordingTranscription = nil
+        recordedFile = nil
+        recordingState = .idle
     }
 
     private func requestRecordingCancellation() {
@@ -721,9 +746,22 @@ class VoiceInkEngine: NSObject, ObservableObject {
     private func saveCanceledRecording() async {
         guard let recordedFile,
             FileManager.default.fileExists(atPath: recordedFile.path)
-        else { return }
+        else {
+            discardActiveRecordingTranscription()
+            return
+        }
 
         let duration = await AudioFileMetadata.duration(for: recordedFile)
+        if let transcription = takeActiveRecordingTranscription() {
+            transcription.markAsCanceledTranscription(duration: duration)
+            do {
+                try modelContext.save()
+            } catch {
+                logger.error("Failed to save canceled recording: \(error, privacy: .public)")
+            }
+            return
+        }
+
         let transcription = makeRecordingTranscription(
             for: recordedFile,
             text: Transcription.canceledTranscriptionText,
@@ -739,6 +777,31 @@ class VoiceInkEngine: NSObject, ObservableObject {
         } catch {
             logger.error("Failed to save canceled recording: \(error, privacy: .public)")
         }
+    }
+
+    private func insertPendingTranscription(for audioURL: URL) -> Transcription {
+        let transcription = makeRecordingTranscription(
+            for: audioURL,
+            text: "",
+            duration: 0,
+            transcriptionStatus: .pending
+        )
+        modelContext.insert(transcription)
+        try? modelContext.save()
+        NotificationCenter.default.post(name: .transcriptionCreated, object: transcription)
+        return transcription
+    }
+
+    private func takeActiveRecordingTranscription() -> Transcription? {
+        defer { activeRecordingTranscription = nil }
+        return activeRecordingTranscription
+    }
+
+    /// Removes the pending record when its recording is thrown away without being saved.
+    private func discardActiveRecordingTranscription() {
+        guard let transcription = takeActiveRecordingTranscription() else { return }
+        modelContext.delete(transcription)
+        try? modelContext.save()
     }
 
     private func makeRecordingTranscription(

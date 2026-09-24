@@ -7,7 +7,6 @@ enum SettingsTab: String, CaseIterable, Identifiable {
     case audio
     case pasting
     case data
-    case license
 
     var id: String { rawValue }
 
@@ -16,17 +15,8 @@ enum SettingsTab: String, CaseIterable, Identifiable {
         switch legacyDestination {
         case "Settings": self = .general
         case "Audio": self = .audio
-        case "VoiceInk Pro": self = .license
         default: return nil
         }
-    }
-
-    static var visibleTabs: [SettingsTab] {
-        #if LOCAL_BUILD
-            allCases.filter { $0 != .license }
-        #else
-            allCases
-        #endif
     }
 }
 
@@ -41,7 +31,7 @@ final class SettingsNavigation: ObservableObject {
 /// Opens the Settings window from contexts with no view hierarchy, such as a notification action.
 enum SettingsWindowPresenter {
     static func open(_ tab: SettingsTab? = nil) {
-        if let tab, SettingsTab.visibleTabs.contains(tab) {
+        if let tab {
             SettingsNavigation.shared.selectedTab = tab
         }
         NotificationCenter.default.post(name: .showSettingsRequested, object: nil)
@@ -90,12 +80,6 @@ struct SettingsWindowView: View {
             Tab("Data", systemImage: "folder", value: SettingsTab.data) {
                 DataSettingsView()
             }
-
-            #if !LOCAL_BUILD
-                Tab("License", systemImage: "key", value: SettingsTab.license) {
-                    LicenseSettingsView()
-                }
-            #endif
         }
         .frame(width: 720, height: 620)
     }

@@ -38,6 +38,7 @@ struct VoiceApp: App {
 
     init() {
         let launchDate = Date()
+        let previousAppImport = PreviousAppDataImport.runIfNeeded()
 
         // Disable HTTP response caching — prevents API responses from being stored in Cache.db
         URLCache.shared = URLCache(memoryCapacity: 0, diskCapacity: 0)
@@ -196,6 +197,7 @@ struct VoiceApp: App {
                 launchDate: launchDate
             )
             Self.showRecoveredRecordingsNotification(for: recoveredTranscriptions)
+            Self.showPreviousAppImportNotification(for: previousAppImport)
             TranscriptionAutoCleanupService.shared.startMonitoring(modelContext: mainContext)
 
             let tokenBackfillTask = SessionMetricMigrationService.shared.runEnhancementTokenBackfillIfNeeded(
@@ -457,6 +459,23 @@ struct VoiceApp: App {
                 type: .warning,
                 duration: 7.0,
                 actionButton: (String(localized: "Manage Modes"), ModeSetupNavigator.openModesSettings)
+            )
+        }
+    }
+
+    @MainActor
+    private static func showPreviousAppImportNotification(for outcome: PreviousAppDataImport.Outcome) {
+        if !outcome.failedItems.isEmpty {
+            NotificationManager.shared.showNotification(
+                title: String(localized: "Some VoiceInk data couldn't be copied. Voice will try again next launch."),
+                type: .warning,
+                duration: 8.0
+            )
+        } else if outcome.importedAnything {
+            NotificationManager.shared.showNotification(
+                title: String(localized: "Copied your History, dictionary and settings from VoiceInk"),
+                type: .info,
+                duration: 8.0
             )
         }
     }

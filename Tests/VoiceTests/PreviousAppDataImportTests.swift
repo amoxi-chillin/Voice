@@ -129,6 +129,7 @@ final class PreviousAppDataImportTests {
         previous.set("VoiceInk Refine", forKey: "selectedAIProvider")
         previous.set(true, forKey: "VoiceInkChecksForUpdatesOnLaunch")
         previous.set(true, forKey: "SUEnableAutomaticChecks")
+        previous.set("0, 0, 200, 720", forKey: "NSSplitView Subview Frames com.prakashjoshipax.voiceink.mainWindow")
         previous.set(modeJSON, forKey: "modeConfigs")
         previous.set("claude -p \"$VOICEINK_FULL_PROMPT\"", forKey: "localCLICommand")
         previous.set(recordingPath, forKey: "lastRecording")
@@ -140,6 +141,7 @@ final class PreviousAppDataImportTests {
         #expect(defaults.bool(forKey: "VoiceChecksForUpdatesOnLaunch"))
         #expect(defaults.object(forKey: "VoiceInkChecksForUpdatesOnLaunch") == nil)
         #expect(defaults.object(forKey: "SUEnableAutomaticChecks") == nil)
+        #expect(defaults.string(forKey: "NSSplitView Subview Frames com.amoxichillin.voice.mainWindow") == "0, 0, 200, 720")
         #expect(defaults.string(forKey: "localCLICommand") == "claude -p \"$VOICE_FULL_PROMPT\"")
         #expect(
             defaults.string(forKey: "lastRecording")

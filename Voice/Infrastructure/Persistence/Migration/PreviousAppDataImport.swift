@@ -334,7 +334,9 @@ enum PreviousAppDataImport {
 
     /// Mirrors the source rename, so keys built from renamed names still match.
     static func renamedSettingsKey(_ key: String) -> String {
-        key.replacingOccurrences(of: "VoiceInk", with: "Voice")
+        key.replacingOccurrences(of: "com.prakashjoshipax.VoiceInk", with: "com.amoxichillin.Voice")
+            .replacingOccurrences(of: "com.prakashjoshipax.voiceink", with: "com.amoxichillin.voice")
+            .replacingOccurrences(of: "VoiceInk", with: "Voice")
             .replacingOccurrences(of: "voiceInk", with: "voice")
             .replacingOccurrences(of: "VOICEINK", with: "VOICE")
             .replacingOccurrences(of: "voiceink", with: "voice")

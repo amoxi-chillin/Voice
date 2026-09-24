@@ -13,7 +13,7 @@ enum ModeSetupNavigator {
 
 enum AudioSetupNavigator {
     static func openAudioSettings() {
-        MainWindowNavigator.open(destination: .audio)
+        SettingsWindowPresenter.open(.audio)
     }
 }
 

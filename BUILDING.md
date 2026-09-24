@@ -2,7 +2,7 @@
 
 ## Requirements
 
-- macOS 14.4 or later
+- macOS 26 or later
 - Xcode with Command Line Tools
 - Git
 

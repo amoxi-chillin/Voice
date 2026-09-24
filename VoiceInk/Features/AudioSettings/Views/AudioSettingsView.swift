@@ -1,19 +1,16 @@
 import CoreAudio
 import SwiftUI
 
-struct AudioSetupView: View {
+struct AudioSettingsView: View {
     @ObservedObject private var audioDeviceManager = AudioDeviceManager.shared
     @ObservedObject private var mediaController = MediaController.shared
     @ObservedObject private var playbackController = PlaybackController.shared
     @State private var microphoneSourceBeforePriorityOrder: MicrophoneSourceSelection = .systemDefault
-    @State private var refreshIconRotation = 0.0
 
     var body: some View {
         Form {
-            Section {
+            Section("Input") {
                 inputSettingsRows
-            } header: {
-                Text("Audio Input")
             }
 
             if usesPriorityOrder {
@@ -21,31 +18,21 @@ struct AudioSetupView: View {
                     priorityOrderRows
                 } header: {
                     Text("Priority Order")
+                } footer: {
+                    Text("The first available microphone in the list is used.")
                 }
             }
 
-            Section {
-                CustomSoundSettingsView()
-            } header: {
-                Text("Recording Sounds")
-            }
+            Section("While Recording") {
+                Toggle("Mute System Audio", isOn: $mediaController.isSystemMuteEnabled)
 
-            Section {
-                Toggle("Mute Audio While Recording", isOn: $mediaController.isSystemMuteEnabled)
+                Toggle("Pause Media", isOn: $playbackController.isPauseMediaEnabled)
 
-                Toggle("Pause Media While Recording", isOn: $playbackController.isPauseMediaEnabled)
-
-                LabeledContent("Resume Delay") {
-                    resumeDelayMenu
-                        .disabled(!canEditResumeDelay)
-                }
-                .foregroundStyle(canEditResumeDelay ? .primary : .secondary)
-            } header: {
-                Text("Recording Behavior")
+                resumeDelayMenu
+                    .disabled(!canEditResumeDelay)
             }
         }
         .formStyle(.grouped)
-        .scrollContentBackground(.hidden)
         .onAppear {
             if !usesPriorityOrder {
                 microphoneSourceBeforePriorityOrder = currentMicrophoneSource
@@ -55,35 +42,27 @@ struct AudioSetupView: View {
 
     @ViewBuilder
     private var inputSettingsRows: some View {
-        Picker("Microphone Mode", selection: inputRouteSelection) {
-            Text("Selected Microphone").tag(InputRoute.singleMicrophone)
+        Picker("Microphone", selection: inputRouteSelection) {
+            Text("Selected").tag(InputRoute.singleMicrophone)
             Text("Priority Order").tag(InputRoute.priorityOrder)
         }
-        .pickerStyle(.menu)
+        .pickerStyle(.segmented)
 
         if !usesPriorityOrder {
-            Picker("Microphone", selection: microphoneSourceSelection) {
+            Picker("Input Device", selection: microphoneSourceSelection) {
                 Text(systemDefaultSourceTitle).tag(MicrophoneSourceSelection.systemDefault)
 
                 ForEach(audioDeviceManager.availableDevices, id: \.uid) { device in
                     Text(device.name).tag(MicrophoneSourceSelection.device(device.uid))
                 }
             }
-            .pickerStyle(.menu)
         }
 
-        Button {
-            refreshMicrophones()
-        } label: {
-            Label {
-                Text("Refresh Microphones")
-            } icon: {
-                Image(systemName: "arrow.clockwise")
-                    .rotationEffect(.degrees(refreshIconRotation))
+        LabeledContent("Available Microphones") {
+            Button("Refresh") {
+                audioDeviceManager.loadAvailableDevices()
             }
         }
-        .buttonStyle(.borderless)
-        .help("Refresh Microphones")
     }
 
     @ViewBuilder
@@ -132,18 +111,11 @@ struct AudioSetupView: View {
         Button {
             audioDeviceManager.addPrioritizedDevice(uid: device.uid, name: device.name)
         } label: {
-            HStack(spacing: 8) {
-                Label(device.name, systemImage: "plus.circle")
-                    .lineLimit(1)
-
-                Spacer()
-
-                Text("Add")
-                    .foregroundStyle(.secondary)
-            }
-            .contentShape(Rectangle())
+            Label(device.name, systemImage: "plus.circle")
+                .lineLimit(1)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.borderless)
+        .help("Add to Priority Order")
     }
 
     private func priorityDeviceRow(for prioritizedDevice: PrioritizedDevice) -> some View {
@@ -257,13 +229,6 @@ struct AudioSetupView: View {
         return String(format: String(localized: "System Default (%@)"), name)
     }
 
-    private func refreshMicrophones() {
-        withAnimation(.easeInOut(duration: 0.35)) {
-            refreshIconRotation += 360
-        }
-        audioDeviceManager.loadAvailableDevices()
-    }
-
     private var usesPriorityOrder: Bool {
         audioDeviceManager.inputMode == .prioritized
     }
@@ -280,15 +245,13 @@ struct AudioSetupView: View {
 
     private var resumeDelayMenu: some View {
         Picker("Resume Delay", selection: $mediaController.audioResumptionDelay) {
-            Text("0s").tag(0.0)
-            Text("1s").tag(1.0)
-            Text("2s").tag(2.0)
-            Text("3s").tag(3.0)
-            Text("4s").tag(4.0)
-            Text("5s").tag(5.0)
+            Text("None").tag(0.0)
+            Text("1 second").tag(1.0)
+            Text("2 seconds").tag(2.0)
+            Text("3 seconds").tag(3.0)
+            Text("4 seconds").tag(4.0)
+            Text("5 seconds").tag(5.0)
         }
-        .pickerStyle(.menu)
-        .labelsHidden()
     }
 
     private var canEditResumeDelay: Bool {

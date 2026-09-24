@@ -4,15 +4,34 @@ import SwiftUI
 enum ViewType: String, CaseIterable, Identifiable {
     case dashboard = "Dashboard"
     case modes = "Modes"
-    case models = "AI Models"
     case transcribeAudio = "Transcribe Audio"
     case history = "History"
-    case audio = "Audio"
     case dictionary = "Dictionary"
-    case settings = "Settings"
-    case license = "VoiceInk Pro"
+    case models = "AI Models"
 
     var id: String { rawValue }
+
+    var title: LocalizedStringKey {
+        switch self {
+        case .dashboard: return "Dashboard"
+        case .modes: return "Modes"
+        case .transcribeAudio: return "Transcribe"
+        case .history: return "History"
+        case .dictionary: return "Dictionary"
+        case .models: return "Models"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .dashboard: return "gauge.with.dots.needle.33percent"
+        case .modes: return "square.stack.3d.up"
+        case .transcribeAudio: return "waveform"
+        case .history: return "clock"
+        case .dictionary: return "character.book.closed"
+        case .models: return "cpu"
+        }
+    }
 }
 
 final class MainWindowNavigation: ObservableObject {
@@ -22,12 +41,13 @@ final class MainWindowNavigation: ObservableObject {
 
     private init() {}
 
+    /// Routes legacy string destinations; screens that moved to the Settings window open it instead.
     func navigate(to destination: String) {
-        guard let viewType = ViewType(rawValue: destination) else {
-            return
+        if let viewType = ViewType(rawValue: destination) {
+            navigate(to: viewType)
+        } else if let tab = SettingsTab(legacyDestination: destination) {
+            SettingsWindowPresenter.open(tab)
         }
-
-        navigate(to: viewType)
     }
 
     func navigate(to destination: ViewType) {
@@ -37,17 +57,17 @@ final class MainWindowNavigation: ObservableObject {
 
 struct ContentView: View {
     private let logger = Logger(subsystem: "com.prakashjoshipax.voiceink", category: "ContentView")
-    private static let detailBackgroundTintOpacity = 0.50
     @EnvironmentObject private var navigation: MainWindowNavigation
 
     var body: some View {
-        HStack(spacing: 0) {
-            AppSidebar(selectedView: $navigation.selectedView)
-
-            detailContent
+        NavigationSplitView {
+            AppSidebar(selection: $navigation.selectedView)
+                .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 260)
+        } detail: {
+            detailView(for: navigation.selectedView)
+                .navigationTitle(navigation.selectedView.title)
         }
-        .frame(width: AppWindowLayout.width)
-        .frame(minHeight: AppWindowLayout.minimumHeight)
+        .frame(minWidth: AppWindowLayout.minimumWidth, minHeight: AppWindowLayout.minimumHeight)
         .onAppear {
             logger.notice("ContentView appeared")
         }
@@ -63,26 +83,6 @@ struct ContentView: View {
     }
 
     @ViewBuilder
-    private var detailContent: some View {
-        detailView(for: navigation.selectedView)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(detailBackground)
-    }
-
-    private var detailBackground: some View {
-        ZStack {
-            VisualEffectView(
-                material: .sidebar,
-                blendingMode: .behindWindow
-            )
-
-            AppTheme.Surface.window
-                .opacity(Self.detailBackgroundTintOpacity)
-        }
-        .ignoresSafeArea(.container, edges: .top)
-    }
-
-    @ViewBuilder
     private func detailView(for viewType: ViewType) -> some View {
         switch viewType {
         case .dashboard:
@@ -93,16 +93,10 @@ struct ContentView: View {
             AudioTranscribeView()
         case .history:
             HistoryView()
-        case .audio:
-            AudioSetupView()
         case .dictionary:
             DictionarySettingsView()
         case .modes:
             ModeView()
-        case .settings:
-            SettingsView()
-        case .license:
-            LicenseManagementView()
         }
     }
 }

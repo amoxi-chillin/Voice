@@ -190,7 +190,7 @@ struct HistoryView: View {
                 iconSize: 13,
                 cornerRadius: AppTheme.Radius.pill
             ) {
-                openPanel(mode: .historySettings)
+                SettingsWindowPresenter.open(.data)
             }
         }
         .padding(.horizontal, 24)
@@ -338,8 +338,6 @@ struct HistoryView: View {
                 }
             )
             .id(selectedTranscriptions.count)
-        case .historySettings:
-            HistorySettingsPanel(onClose: closePanel)
         }
     }
 
@@ -484,7 +482,6 @@ struct HistoryView: View {
 private enum HistoryPanelMode {
     case info
     case analysis
-    case historySettings
 }
 
 // MARK: - History Card Row

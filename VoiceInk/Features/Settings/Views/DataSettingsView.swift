@@ -1,10 +1,15 @@
 import SwiftData
 import SwiftUI
 
-struct HistorySettingsPanel: View {
+struct DataSettingsView: View {
     @Environment(\.modelContext) private var modelContext
-
-    let onClose: () -> Void
+    @EnvironmentObject private var menuBarManager: MenuBarManager
+    @EnvironmentObject private var recordingShortcutManager: RecordingShortcutManager
+    @EnvironmentObject private var recorderUIManager: RecorderUIManager
+    @EnvironmentObject private var transcriptionModelManager: TranscriptionModelManager
+    @EnvironmentObject private var enhancementService: AIEnhancementService
+    @ObservedObject private var mediaController = MediaController.shared
+    @ObservedObject private var playbackController = PlaybackController.shared
 
     @AppStorage(CleanupSettingsKeys.isTranscriptionCleanupEnabled) private var isTranscriptionCleanupEnabled = false
     @AppStorage(CleanupSettingsKeys.transcriptionRetentionMinutes) private var transcriptionRetentionMinutes = 24 * 60
@@ -17,38 +22,24 @@ struct HistorySettingsPanel: View {
     @State private var showAudioCleanupResult = false
     @State private var audioCleanupResult: (deletedCount: Int, errorCount: Int) = (0, 0)
     @State private var showTranscriptCleanupResult = false
+    @State private var isImportingSettings = false
 
     var body: some View {
-        VStack(spacing: 0) {
-            AppPanelHeader(title: "History Settings", onClose: onClose)
+        Form {
+            Section {
+                Toggle("Delete Transcriptions Automatically", isOn: $isTranscriptionCleanupEnabled)
 
-            Form {
-                Section {
-                    LabeledContent("Open Quick History") {
-                        ShortcutRecorder(action: .openQuickHistory)
-                            .controlSize(.small)
+                if isTranscriptionCleanupEnabled {
+                    Picker("Keep Transcriptions For", selection: $transcriptionRetentionMinutes) {
+                        Text("Delete Immediately").tag(0)
+                        Text("1 hour").tag(60)
+                        Text("1 day").tag(24 * 60)
+                        Text("3 days").tag(3 * 24 * 60)
+                        Text("7 days").tag(7 * 24 * 60)
                     }
-                } header: {
-                    sectionHeader(
-                        "Quick History",
-                        tip:
-                            "Open recent transcriptions without opening the main VoiceInk window. Search, select, and press Return to paste into your current app."
-                    )
-                }
 
-                Section {
-                    Toggle("Auto-delete Transcript History", isOn: $isTranscriptionCleanupEnabled)
-
-                    if isTranscriptionCleanupEnabled {
-                        Picker("Delete After", selection: $transcriptionRetentionMinutes) {
-                            Text("Immediately").tag(0)
-                            Text("1 hour").tag(60)
-                            Text("1 day").tag(24 * 60)
-                            Text("3 days").tag(3 * 24 * 60)
-                            Text("7 days").tag(7 * 24 * 60)
-                        }
-
-                        Button("Run Cleanup Now") {
+                    LabeledContent("Clean Up Transcriptions") {
+                        Button("Run Now") {
                             Task {
                                 await TranscriptionAutoCleanupService.shared.runManualCleanup(
                                     modelContext: modelContext)
@@ -58,45 +49,92 @@ struct HistorySettingsPanel: View {
                             }
                         }
                     }
-                } header: {
-                    sectionHeader(
-                        "Transcript History",
-                        tip: "Delete transcript history and related audio files after the retention period."
-                    )
-                }
+                } else {
+                    Toggle("Delete Audio Automatically", isOn: $isAudioCleanupEnabled)
 
-                if !isTranscriptionCleanupEnabled {
-                    Section {
-                        Toggle("Auto-delete Audio Files", isOn: $isAudioCleanupEnabled)
+                    if isAudioCleanupEnabled {
+                        Picker("Keep Audio For", selection: $audioRetentionPeriod) {
+                            Text("1 day").tag(1)
+                            Text("3 days").tag(3)
+                            Text("7 days").tag(7)
+                            Text("14 days").tag(14)
+                            Text("30 days").tag(30)
+                        }
 
-                        if isAudioCleanupEnabled {
-                            Picker("Keep Audio For", selection: $audioRetentionPeriod) {
-                                Text("1 day").tag(1)
-                                Text("3 days").tag(3)
-                                Text("7 days").tag(7)
-                                Text("14 days").tag(14)
-                                Text("30 days").tag(30)
-                            }
-
-                            Button {
+                        LabeledContent("Clean Up Audio") {
+                            Button(isPerformingAudioCleanup ? "Analyzing…" : "Run Now") {
                                 analyzeAudioCleanup()
-                            } label: {
-                                Text(isPerformingAudioCleanup ? "Analyzing..." : "Run Cleanup Now")
                             }
                             .disabled(isPerformingAudioCleanup)
                         }
-                    } header: {
-                        sectionHeader(
-                            "Audio Files",
-                            tip: "Delete old recordings while keeping transcript history."
-                        )
                     }
                 }
+            } header: {
+                Text("History")
+            } footer: {
+                if isTranscriptionCleanupEnabled {
+                    Text("Deleting a transcription also deletes its audio recording.")
+                } else {
+                    Text("Keep your transcription history while removing older audio recordings.")
+                }
             }
-            .formStyle(.grouped)
-            .scrollContentBackground(.hidden)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            Section("Backup") {
+                LabeledContent {
+                    Button("Export…") {
+                        Task {
+                            await ImportExportService.shared.exportSettings(
+                                enhancementService: enhancementService,
+                                recordingShortcutManager: recordingShortcutManager,
+                                menuBarManager: menuBarManager,
+                                mediaController: mediaController,
+                                playbackController: playbackController,
+                                recorderUIManager: recorderUIManager,
+                                modelContext: modelContext
+                            )
+                        }
+                    }
+                } label: {
+                    Text("Export Settings")
+                    Text("Modes, dictionary, shortcuts and preferences.")
+                }
+
+                LabeledContent {
+                    Button("Import…") {
+                        guard !isImportingSettings else { return }
+                        isImportingSettings = true
+                        Task { @MainActor in
+                            defer { isImportingSettings = false }
+                            await ImportExportService.shared.importSettings(
+                                enhancementService: enhancementService,
+                                recordingShortcutManager: recordingShortcutManager,
+                                menuBarManager: menuBarManager,
+                                mediaController: mediaController,
+                                playbackController: playbackController,
+                                recorderUIManager: recorderUIManager,
+                                modelContext: modelContext,
+                                transcriptionModelManager: transcriptionModelManager
+                            )
+                        }
+                    }
+                    .disabled(isImportingSettings)
+                } label: {
+                    Text("Import Settings")
+                    Text("Choose which categories to restore from a backup.")
+                }
+            }
+
+            Section("Diagnostics") {
+                LabeledContent("System Information") {
+                    Button("Copy") {
+                        SystemInfoService.shared.copySystemInfoToClipboard()
+                    }
+                }
+
+                DiagnosticsSettingsView()
+            }
         }
+        .formStyle(.grouped)
         .alert("Transcript Cleanup", isPresented: $showTranscriptCleanupResult) {
             Button("OK", role: .cancel) {}
         } message: {
@@ -155,14 +193,6 @@ struct HistorySettingsPanel: View {
             } else {
                 AudioCleanupManager.shared.stopAutomaticCleanup()
             }
-        }
-    }
-
-    private func sectionHeader(_ title: LocalizedStringKey, tip: LocalizedStringKey) -> some View {
-        HStack(spacing: 4) {
-            Text(title)
-
-            InfoTip(message: tip, iconSize: .small, iconColor: .secondary, width: 260)
         }
     }
 

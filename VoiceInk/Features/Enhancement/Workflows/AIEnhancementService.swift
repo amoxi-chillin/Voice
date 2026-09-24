@@ -29,9 +29,6 @@ class AIEnhancementService: ObservableObject {
     private let aiService: AIService
     private let screenCaptureService: ScreenCaptureService
     private let customVocabularyService: CustomVocabularyService
-    private var requestTimeout: TimeInterval {
-        EnhancementRequestSettings.timeout
-    }
     private let rateLimitInterval: TimeInterval = 1.0
     private var lastRequestTime: Date?
     private let modelContext: ModelContext
@@ -244,7 +241,7 @@ class AIEnhancementService: ObservableObject {
                 messages: [.user(formattedText)],
                 systemPrompt: systemMessage,
                 localUserPrompt: formattedText,
-                timeout: requestTimeout
+                timeout: EnhancementRequestSettings.timeout(forInput: text)
             )
             if let openRouterCompletion = completion.openRouterCompletion {
                 let routedProvider = openRouterCompletion.provider ?? "unknown"

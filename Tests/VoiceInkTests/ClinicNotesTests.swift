@@ -67,3 +67,26 @@ struct CustomPromptCodingTests {
         #expect(prompt.finalPromptText.contains("<OUTPUT_TEMPLATE>"))
     }
 }
+
+struct EnhancementTimeoutTests {
+    private func words(_ count: Int) -> String {
+        Array(repeating: "word", count: count).joined(separator: " ")
+    }
+
+    @Test func keepsConfiguredTimeoutForShortDictation() {
+        #expect(EnhancementRequestSettings.timeout(forInput: words(80)) == EnhancementRequestSettings.timeout)
+    }
+
+    @Test func growsWithLongDictation() {
+        let base = EnhancementRequestSettings.timeout
+        let longNote = EnhancementRequestSettings.timeout(forInput: words(600))
+
+        #expect(longNote == base + 500 * 0.12)
+    }
+
+    @Test func isCappedForVeryLongDictation() {
+        let cap = max(EnhancementRequestSettings.timeout, 180)
+
+        #expect(EnhancementRequestSettings.timeout(forInput: words(10_000)) == cap)
+    }
+}

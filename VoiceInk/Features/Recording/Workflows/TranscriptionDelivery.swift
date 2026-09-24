@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import os
 
@@ -12,6 +13,8 @@ final class TranscriptionDelivery {
         let responseConfig: EnhancementRuntimeConfiguration?
         let responseError: String?
         let isAssistantFollowUp: Bool
+        /// When set, the text is only pasted if this app is still frontmost; otherwise it is copied.
+        var expectedTargetBundleIdentifier: String? = nil
     }
 
     struct Actions {
@@ -46,6 +49,12 @@ final class TranscriptionDelivery {
         }
 
         if let text = request.text {
+            if let expectedTargetBundleIdentifier = request.expectedTargetBundleIdentifier,
+                NSWorkspace.shared.frontmostApplication?.bundleIdentifier != expectedTargetBundleIdentifier
+            {
+                await copyInsteadOfPasting(text, actions: actions)
+                return
+            }
             await paste(text, output: request.output, actions: actions)
         } else {
             await actions.dismiss()
@@ -175,6 +184,22 @@ final class TranscriptionDelivery {
                 CursorPaster.performAutoSend(autoSendKey)
             }
         }
+    }
+
+    /// Used when the user has moved to another app, so the text can't land somewhere unintended.
+    private func copyInsteadOfPasting(_ text: String, actions: Actions) async {
+        SoundManager.shared.playStopSound()
+        await actions.dismiss()
+
+        let didCopy = ClipboardManager.setClipboard(deliverableText(from: text))
+        logger.notice("Target app changed before delivery; copied instead of pasting didCopy=\(didCopy, privacy: .public)")
+        NotificationManager.shared.showNotification(
+            title: didCopy
+                ? String(localized: "You switched apps, so the note was copied instead of pasted")
+                : String(localized: "You switched apps, so the note wasn't pasted. It's saved in History."),
+            type: didCopy ? .info : .warning,
+            duration: 6.0
+        )
     }
 
     private func deliverableText(from text: String) -> String {

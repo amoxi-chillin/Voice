@@ -22,6 +22,16 @@ class TranscriptionPipeline {
         )
     }
 
+    /// Lets a mode collect several recordings into one note instead of delivering each one.
+    struct NoteHooks {
+        /// True when this recording adds to a note that is already open.
+        let isContinuation: Bool
+        /// Receives a finished part. The text is nil when the part failed to transcribe.
+        let collect: (String?, Transcription, ModeConfig?, RecordingContextSnapshot?) async -> Void
+
+        static let inactive = NoteHooks(isContinuation: false, collect: { _, _, _, _ in })
+    }
+
     private let modelContext: ModelContext
     private let serviceRegistry: TranscriptionServiceRegistry
     private let enhancementService: AIEnhancementService?
@@ -62,13 +72,16 @@ class TranscriptionPipeline {
         shouldCancel: () -> Bool,
         onCancel: @escaping () async -> Void,
         onDismiss: @escaping () async -> Void,
-        assistant: AssistantHooks = .inactive
+        assistant: AssistantHooks = .inactive,
+        note: NoteHooks = .inactive
     ) async {
         let model = transcriptionConfiguration.model
         var finalText: String?
         var responseError: String?
         var outputForDelivery: OutputRuntimeConfiguration?
         var responseConfig: EnhancementRuntimeConfiguration?
+        var shouldCollectIntoNote = note.isContinuation
+        var noteMode: ModeConfig?
 
         func finishCanceledTranscription() async {
             await onCancel()
@@ -121,6 +134,7 @@ class TranscriptionPipeline {
             text = text.trimmingCharacters(in: .whitespacesAndNewlines)
 
             if !assistant.isFollowUp,
+                !note.isContinuation,
                 let processedText = triggerWordModeSelection(text)
             {
                 text = processedText
@@ -151,7 +165,15 @@ class TranscriptionPipeline {
             transcription.modeEmoji = modeMetadata.emoji
             finalText = cleanedText
 
-            if !assistant.isFollowUp {
+            if !assistant.isFollowUp,
+                resolvedOutputConfiguration.outputMode != .respond,
+                resolvedOutputConfiguration.mode?.continuation.isEnabled == true
+            {
+                shouldCollectIntoNote = true
+            }
+            noteMode = resolvedOutputConfiguration.mode
+
+            if !assistant.isFollowUp && !shouldCollectIntoNote {
                 let shouldRespondInRecorder =
                     resolvedOutputConfiguration.outputMode == .respond
                     && resolvedEnhancementConfiguration?.isEnabled == true
@@ -185,35 +207,18 @@ class TranscriptionPipeline {
                         await assistant.startResponse(textForAI, resolvedEnhancementConfiguration)
                     }
 
-                    do {
-                        let contextSnapshot = await recordingContextSnapshot()
-                        transcription.aiEnhancementModelName =
-                            resolvedEnhancementConfiguration.modelName
-                            ?? resolvedEnhancementConfiguration.provider?.defaultModel
-                        transcription.promptName = resolvedEnhancementConfiguration.prompt?.title
-                        let enhancementResult = try await enhancementService.enhance(
-                            textForAI,
-                            configuration: resolvedEnhancementConfiguration,
-                            contextSnapshot: contextSnapshot
-                        )
-                        transcription.enhancedText = enhancementResult.text
-                        transcription.promptName =
-                            enhancementResult.promptName ?? resolvedEnhancementConfiguration.prompt?.title
-                        transcription.enhancementDuration = enhancementResult.duration
-                        transcription.aiRequestSystemMessage = enhancementResult.systemMessage
-                        transcription.aiRequestUserMessage = enhancementResult.userMessage
-                        finalText = enhancementResult.text
-                    } catch {
-                        let errorDescription = EnhancementFailureFormatter.description(for: error)
-                        let failureMessage = EnhancementFailureFormatter.message(description: errorDescription)
-                        transcription.enhancedText = failureMessage
-                        responseError = errorDescription
-                        await MainActor.run {
-                            NotificationManager.shared.showNotification(
-                                title: failureMessage,
-                                type: .warning
-                            )
-                        }
+                    let contextSnapshot = await recordingContextSnapshot()
+                    let enhancement = await enhance(
+                        textForAI,
+                        transcription: transcription,
+                        configuration: resolvedEnhancementConfiguration,
+                        contextSnapshot: contextSnapshot,
+                        using: enhancementService
+                    )
+                    if let enhancedText = enhancement.text {
+                        finalText = enhancedText
+                    } else {
+                        responseError = enhancement.errorDescription
                         if shouldCancel() {
                             await finishCanceledTranscription()
                             return
@@ -273,6 +278,18 @@ class TranscriptionPipeline {
             return
         }
 
+        if shouldCollectIntoNote {
+            saveTranscriptionAndPostCompletion()
+            let didTranscribe = transcription.transcriptionStatus == TranscriptionStatus.completed.rawValue
+            await note.collect(
+                didTranscribe ? (finalText ?? "") : nil,
+                transcription,
+                noteMode,
+                await recordingContextSnapshot()
+            )
+            return
+        }
+
         await delivery.deliver(
             TranscriptionDelivery.Request(
                 transcription: transcription,
@@ -292,6 +309,112 @@ class TranscriptionPipeline {
         )
 
         saveTranscriptionAndPostCompletion()
+    }
+
+    /// Enhances and delivers a note that was collected from several recordings.
+    func runNote(
+        transcription: Transcription,
+        text: String,
+        enhancementConfiguration: EnhancementRuntimeConfiguration?,
+        contextSnapshot: RecordingContextSnapshot?,
+        outputConfiguration: OutputRuntimeConfiguration,
+        targetBundleIdentifier: String?,
+        onStateChange: @escaping (RecordingState) -> Void,
+        shouldCancel: () -> Bool,
+        onDismiss: @escaping () async -> Void
+    ) async {
+        var finalText = text
+
+        if let enhancementService,
+            let enhancementConfiguration,
+            enhancementConfiguration.isEnabled,
+            enhancementService.isConfigured(for: enhancementConfiguration)
+        {
+            onStateChange(.enhancing)
+            let enhancement = await enhance(
+                text,
+                transcription: transcription,
+                configuration: enhancementConfiguration,
+                contextSnapshot: contextSnapshot,
+                using: enhancementService
+            )
+            if let enhancedText = enhancement.text {
+                finalText = enhancedText
+            }
+        }
+
+        if shouldCancel() {
+            // Every part already has its own History entry, so drop the combined one.
+            modelContext.delete(transcription)
+            try? modelContext.save()
+            await onDismiss()
+            return
+        }
+
+        transcription.transcriptionStatus = TranscriptionStatus.completed.rawValue
+
+        await delivery.deliver(
+            TranscriptionDelivery.Request(
+                transcription: transcription,
+                text: finalText,
+                output: outputConfiguration,
+                responseConfig: nil,
+                responseError: nil,
+                isAssistantFollowUp: false,
+                expectedTargetBundleIdentifier: targetBundleIdentifier
+            ),
+            actions: TranscriptionDelivery.Actions(
+                setState: onStateChange,
+                dismiss: onDismiss,
+                sendFollowUp: { _, _ in },
+                showResponse: { _, _ in },
+                failResponse: { _ in }
+            )
+        )
+
+        // Session metrics were already recorded for each part.
+        do {
+            try modelContext.save()
+            NotificationCenter.default.post(name: .transcriptionCompleted, object: transcription)
+        } catch {
+            logger.error("Failed to save note: \(error, privacy: .public)")
+        }
+    }
+
+    /// Runs AI enhancement and records the outcome on `transcription`.
+    private func enhance(
+        _ text: String,
+        transcription: Transcription,
+        configuration: EnhancementRuntimeConfiguration,
+        contextSnapshot: RecordingContextSnapshot?,
+        using enhancementService: AIEnhancementService
+    ) async -> (text: String?, errorDescription: String?) {
+        do {
+            transcription.aiEnhancementModelName =
+                configuration.modelName
+                ?? configuration.provider?.defaultModel
+            transcription.promptName = configuration.prompt?.title
+            let enhancementResult = try await enhancementService.enhance(
+                text,
+                configuration: configuration,
+                contextSnapshot: contextSnapshot
+            )
+            transcription.enhancedText = enhancementResult.text
+            transcription.promptName = enhancementResult.promptName ?? configuration.prompt?.title
+            transcription.enhancementDuration = enhancementResult.duration
+            transcription.aiRequestSystemMessage = enhancementResult.systemMessage
+            transcription.aiRequestUserMessage = enhancementResult.userMessage
+            return (enhancementResult.text, nil)
+        } catch {
+            let errorDescription = EnhancementFailureFormatter.description(for: error)
+            let failureMessage = EnhancementFailureFormatter.message(description: errorDescription)
+            transcription.enhancedText = failureMessage
+            NotificationManager.shared.showNotification(
+                title: failureMessage,
+                type: .warning
+            )
+            return (nil, errorDescription)
+        }
     }
 
     private func metadata(for mode: ModeConfig?) -> (name: String?, emoji: String?) {

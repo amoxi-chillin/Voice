@@ -101,6 +101,9 @@ class RecordingShortcutManager: ObservableObject {
             recordingState: {
                 engine.recordingState
             },
+            isNoteOpen: {
+                engine.noteSession.isActive
+            },
             toggleRecorderPanel: { modeId in
                 await recorderUIManager.toggleRecorderPanel(modeId: modeId)
             },
@@ -294,6 +297,7 @@ final class RecordingShortcutModeHandler {
     private let canHandleShortcutAction: @MainActor () -> Bool
     private let isRecorderVisible: @MainActor () -> Bool
     private let recordingState: @MainActor () -> RecordingState
+    private let isNoteOpen: @MainActor () -> Bool
     private let toggleRecorderPanel: @MainActor (UUID?) async -> Void
     private let cancelRecording: @MainActor () async -> Void
 
@@ -312,12 +316,14 @@ final class RecordingShortcutModeHandler {
         canHandleShortcutAction: @escaping @MainActor () -> Bool,
         isRecorderVisible: @escaping @MainActor () -> Bool,
         recordingState: @escaping @MainActor () -> RecordingState,
+        isNoteOpen: @escaping @MainActor () -> Bool = { false },
         toggleRecorderPanel: @escaping @MainActor (UUID?) async -> Void,
         cancelRecording: @escaping @MainActor () async -> Void
     ) {
         self.canHandleShortcutAction = canHandleShortcutAction
         self.isRecorderVisible = isRecorderVisible
         self.recordingState = recordingState
+        self.isNoteOpen = isNoteOpen
         self.toggleRecorderPanel = toggleRecorderPanel
         self.cancelRecording = cancelRecording
     }
@@ -355,6 +361,14 @@ final class RecordingShortcutModeHandler {
         activeShortcutCanCancelAccidentalStart = canCurrentShortcutPressCancelAccidentalStart
         lastShortcutPressTime = Date()
         shortcutPressStartTime = eventTime
+
+        // An open note waits with the recorder visible, so every shortcut style starts the next part on press.
+        if isRecorderVisible(), recordingState() == .idle, isNoteOpen() {
+            isHandsFreeRecording = false
+            guard canHandleShortcutAction() else { return }
+            await toggleRecorderPanel(modeId)
+            return
+        }
 
         switch mode {
         case .toggle, .hybrid:

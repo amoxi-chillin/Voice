@@ -4,9 +4,12 @@ struct MiniRecorderView<S: RecorderStateProvider & ObservableObject>: View {
     @ObservedObject var stateProvider: S
     @ObservedObject var recorder: Recorder
     @ObservedObject var assistantSession: AssistantSession
+    @ObservedObject var noteSession: DictationNoteSession
     let onRecordButtonTapped: () -> Void
     let onCloseTapped: () -> Void
     let onAssistantFollowUp: (String) -> Void
+    let onFinishNote: () -> Void
+    let onDiscardNote: () -> Void
     @AppStorage(RecorderDisplaySettingsKeys.showLiveTranscript) private var showLiveTranscript = true
 
     // MARK: - Layout Constants
@@ -27,6 +30,14 @@ struct MiniRecorderView<S: RecorderStateProvider & ObservableObject>: View {
 
     private var hasAssistantResponse: Bool {
         assistantSession.isVisible
+    }
+
+    private var hasOpenNote: Bool {
+        noteSession.isActive && !hasAssistantResponse
+    }
+
+    private var isExpanded: Bool {
+        hasLiveTranscript || hasOpenNote
     }
 
     private var shouldShowCloseButton: Bool {
@@ -72,6 +83,15 @@ struct MiniRecorderView<S: RecorderStateProvider & ObservableObject>: View {
 
     private var transcriptSection: some View {
         VStack(spacing: 0) {
+            if hasOpenNote {
+                NoteDraftPanelView(
+                    noteSession: noteSession,
+                    recordingState: stateProvider.recordingState,
+                    onFinish: onFinishNote,
+                    onDiscard: onDiscardNote
+                )
+                Divider().background(Color.white.opacity(0.15))
+            }
             if hasLiveTranscript {
                 LiveTranscriptView(text: stateProvider.partialTranscript)
                 Divider().background(Color.white.opacity(0.15))
@@ -93,14 +113,15 @@ struct MiniRecorderView<S: RecorderStateProvider & ObservableObject>: View {
             }
             controlBar
         }
-        .frame(width: hasAssistantResponse ? assistantWidth : (hasLiveTranscript ? expandedWidth : compactWidth))
+        .frame(width: hasAssistantResponse ? assistantWidth : (isExpanded ? expandedWidth : compactWidth))
         .background(Color.black)
         .clipShape(
             RoundedRectangle(
-                cornerRadius: hasLiveTranscript || hasAssistantResponse ? expandedCornerRadius : compactCornerRadius,
+                cornerRadius: isExpanded || hasAssistantResponse ? expandedCornerRadius : compactCornerRadius,
                 style: .continuous)
         )
         .animation(.easeInOut(duration: 0.3), value: hasLiveTranscript)
+        .animation(.easeInOut(duration: 0.3), value: hasOpenNote)
         .animation(.easeInOut(duration: 0.3), value: hasAssistantResponse)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
     }

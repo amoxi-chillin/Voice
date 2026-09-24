@@ -50,6 +50,35 @@ enum ModeOutputMode: String, Codable, CaseIterable {
     }
 }
 
+/// Whether a stopped recording waits for more dictation before being processed as one note.
+enum DictationContinuation: Codable, Hashable {
+    case off
+    case timed(seconds: Int)
+    case untilFinished
+
+    static let choices: [DictationContinuation] = [
+        .off, .timed(seconds: 10), .timed(seconds: 20), .timed(seconds: 30), .timed(seconds: 60),
+        .timed(seconds: 120), .untilFinished,
+    ]
+
+    var isEnabled: Bool {
+        self != .off
+    }
+
+    var displayName: String {
+        switch self {
+        case .off:
+            return String(localized: "Off")
+        case .timed(let seconds) where seconds >= 60 && seconds % 60 == 0:
+            return String(format: String(localized: "%d min"), seconds / 60)
+        case .timed(let seconds):
+            return String(format: String(localized: "%d sec"), seconds)
+        case .untilFinished:
+            return String(localized: "Until I Click Finish")
+        }
+    }
+}
+
 struct ModeCustomCommand: Codable, Equatable {
     var command: String
 
@@ -85,6 +114,7 @@ struct ModeConfig: Codable, Identifiable, Equatable {
     var outputMode: ModeOutputMode = .paste
     var autoSendKey: AutoSendKey = .none
     var customCommand: ModeCustomCommand?
+    var continuation: DictationContinuation = .off
     var isEnabled: Bool = true
     var isDefault: Bool = false
 
@@ -92,7 +122,7 @@ struct ModeConfig: Codable, Identifiable, Equatable {
         case id, name, icon, appConfigs, urlConfigs, triggerGroups, triggerWords, isAIEnhancementEnabled,
             selectedPrompt, isRealtimeTranscriptionEnabled, selectedLanguage, isTextFormattingEnabled,
             useClipboardContext, useSelectedTextContext, useScreenCapture, selectedAIProvider, selectedAIModel,
-            outputMode, isAutoSendEnabled, autoSendKey, customCommand, isEnabled, isDefault
+            outputMode, isAutoSendEnabled, autoSendKey, customCommand, continuation, isEnabled, isDefault
         case legacyEmoji = "emoji"
         case selectedWhisperModel
         case selectedTranscriptionModelName
@@ -107,7 +137,7 @@ struct ModeConfig: Codable, Identifiable, Equatable {
         useScreenCapture: Bool = false,
         isTextFormattingEnabled: Bool = false, selectedAIProvider: String? = nil, selectedAIModel: String? = nil,
         outputMode: ModeOutputMode = .paste, autoSendKey: AutoSendKey = .none, customCommand: ModeCustomCommand? = nil,
-        isEnabled: Bool = true, isDefault: Bool = false
+        continuation: DictationContinuation = .off, isEnabled: Bool = true, isDefault: Bool = false
     ) {
         self.id = id
         self.name = name
@@ -124,6 +154,7 @@ struct ModeConfig: Codable, Identifiable, Equatable {
         self.autoSendKey = autoSendKey
         self.outputMode = outputMode
         self.customCommand = customCommand
+        self.continuation = continuation
         self.selectedAIProvider = selectedAIProvider
         self.selectedAIModel = selectedAIModel
         self.selectedTranscriptionModelName = selectedTranscriptionModelName
@@ -186,6 +217,7 @@ struct ModeConfig: Codable, Identifiable, Equatable {
         selectedAIModel = try container.decodeIfPresent(String.self, forKey: .selectedAIModel)
         outputMode = try container.decodeIfPresent(ModeOutputMode.self, forKey: .outputMode) ?? .paste
         customCommand = try container.decodeIfPresent(ModeCustomCommand.self, forKey: .customCommand)
+        continuation = (try? container.decodeIfPresent(DictationContinuation.self, forKey: .continuation)) ?? .off
         // Migrate from old isAutoSendEnabled bool to new autoSendKey enum
         if let rawValue = try container.decodeIfPresent(String.self, forKey: .autoSendKey),
             let newKey = AutoSendKey(rawValue: rawValue)
@@ -230,6 +262,7 @@ struct ModeConfig: Codable, Identifiable, Equatable {
         try container.encode(outputMode, forKey: .outputMode)
         try container.encode(autoSendKey, forKey: .autoSendKey)
         try container.encodeIfPresent(customCommand, forKey: .customCommand)
+        if continuation.isEnabled { try container.encode(continuation, forKey: .continuation) }
         try container.encodeIfPresent(selectedTranscriptionModelName, forKey: .selectedTranscriptionModelName)
         try container.encode(isEnabled, forKey: .isEnabled)
         try container.encode(isDefault, forKey: .isDefault)

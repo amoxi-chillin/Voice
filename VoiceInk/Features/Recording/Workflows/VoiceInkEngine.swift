@@ -86,6 +86,7 @@ class VoiceInkEngine: NSObject, ObservableObject {
     private enum RecordingUseCase {
         case newSession
         case assistantFollowUp
+        case noteContinuation
 
         var isAssistantFollowUp: Bool {
             self == .assistantFollowUp
@@ -119,6 +120,9 @@ class VoiceInkEngine: NSObject, ObservableObject {
     internal let serviceRegistry: TranscriptionServiceRegistry
     let enhancementService: AIEnhancementService?
     let assistantSession = AssistantSession()
+    let noteSession = DictationNoteSession()
+    /// The app that was frontmost when the latest recording stopped.
+    private var recordingStopTargetBundleIdentifier: String?
     let assistantChat: AssistantChatService?
     private let pipeline: TranscriptionPipeline
 
@@ -186,6 +190,7 @@ class VoiceInkEngine: NSObject, ObservableObject {
             activeRecordingUseCase = .newSession
             activeRecordingStartID = nil
             partialTranscript = ""
+            recordingStopTargetBundleIdentifier = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
             recordingState = .transcribing
             await recorder.stopRecording()
 
@@ -219,7 +224,15 @@ class VoiceInkEngine: NSObject, ObservableObject {
             }
         } else {
             let canContinueAssistantSession = isAssistantFollowUp && assistantSession.canSendFollowUp
-            let recordingUseCase: RecordingUseCase = canContinueAssistantSession ? .assistantFollowUp : .newSession
+            let isNoteContinuation = !canContinueAssistantSession && noteSession.isActive
+            let recordingUseCase: RecordingUseCase =
+                canContinueAssistantSession
+                ? .assistantFollowUp : (isNoteContinuation ? .noteContinuation : .newSession)
+            // Every part of a note is recorded with the note's mode, whatever app is in front.
+            let modeId = isNoteContinuation ? noteSession.mode?.id : modeId
+            if isNoteContinuation {
+                noteSession.cancelCountdown()
+            }
 
             activePipelineTranscriptionID = nil
             shouldCancelRecording = false
@@ -620,6 +633,19 @@ class VoiceInkEngine: NSObject, ObservableObject {
                     guard let self, self.activePipelineTranscriptionID == transcriptionID else { return }
                     self.assistantSession.fail(message)
                 }
+            ),
+            note: TranscriptionPipeline.NoteHooks(
+                isContinuation: activePipelineUseCase == .noteContinuation,
+                collect: { [weak self, targetBundleIdentifier = recordingStopTargetBundleIdentifier] text, transcription, mode, context in
+                    guard let self, self.activePipelineTranscriptionID == transcriptionID else { return }
+                    await self.collectNotePart(
+                        text: text,
+                        transcription: transcription,
+                        mode: mode,
+                        contextSnapshot: context,
+                        targetBundleIdentifier: targetBundleIdentifier
+                    )
+                }
             )
         )
 
@@ -640,6 +666,168 @@ class VoiceInkEngine: NSObject, ObservableObject {
             && (recordingState == .transcribing || recordingState == .enhancing || recordingState == .busy)
         {
             recordingState = .idle
+        }
+
+        if didFinishActivePipeline, recordingState == .idle, noteSession.isActive {
+            if noteSession.finishWhenCurrentPartArrives {
+                await finishNote()
+            } else {
+                resumeNoteCountdown()
+            }
+        }
+    }
+
+    // MARK: - Multi-part Notes
+
+    private func collectNotePart(
+        text: String?,
+        transcription: Transcription,
+        mode: ModeConfig?,
+        contextSnapshot: RecordingContextSnapshot?,
+        targetBundleIdentifier: String?
+    ) async {
+        if !noteSession.isActive, let mode, text?.isEmpty == false {
+            noteSession.begin(mode: mode, contextSnapshot: contextSnapshot)
+        }
+
+        guard noteSession.isActive else {
+            // Nothing usable arrived for a new note, so there is nothing to wait for.
+            if text == nil {
+                NotificationManager.shared.showNotification(
+                    title: transcription.text,
+                    type: .error,
+                    duration: 5.0
+                )
+            }
+            await recorderUIManager?.dismissRecorderPanel()
+            return
+        }
+
+        guard let text else {
+            NotificationManager.shared.showNotification(
+                title: String(localized: "That part couldn't be transcribed. Its audio is saved in History."),
+                type: .warning,
+                duration: 5.0
+            )
+            return
+        }
+
+        if !text.isEmpty {
+            noteSession.append(
+                DictationNoteSession.Part(id: transcription.id, text: text, duration: transcription.duration),
+                targetBundleIdentifier: targetBundleIdentifier
+            )
+        }
+        SoundManager.shared.playStopSound()
+    }
+
+    func resumeNoteCountdown() {
+        guard noteSession.isActive else { return }
+        noteSession.finishWhenCurrentPartArrives = false
+        noteSession.scheduleFinish { [weak self] in
+            await self?.finishNote()
+        }
+    }
+
+    /// Enhances the collected parts as one note and delivers it.
+    func finishNote() async {
+        guard noteSession.isActive else { return }
+
+        switch recordingState {
+        case .recording:
+            noteSession.finishWhenCurrentPartArrives = true
+            await toggleRecord()
+            return
+        case .starting, .transcribing, .enhancing, .busy:
+            noteSession.finishWhenCurrentPartArrives = true
+            return
+        case .idle:
+            break
+        }
+
+        let contextSnapshot = noteSession.contextSnapshot
+        guard let snapshot = noteSession.takeSnapshot() else {
+            await recorderUIManager?.dismissRecorderPanel()
+            return
+        }
+
+        let mode = ModeManager.shared.getConfiguration(with: snapshot.mode.id) ?? snapshot.mode
+        let transcription = Transcription(
+            text: snapshot.combinedText,
+            duration: snapshot.totalDuration,
+            transcriptionModelName: ModeRuntimeResolver.transcriptionConfiguration(
+                mode: mode,
+                transcriptionModelManager: transcriptionModelManager
+            )?.model.displayName,
+            modeName: mode.isEnabled ? mode.name : nil,
+            modeEmoji: mode.isEnabled ? mode.icon.value : nil,
+            transcriptionStatus: .pending
+        )
+        modelContext.insert(transcription)
+        try? modelContext.save()
+        NotificationCenter.default.post(name: .transcriptionCreated, object: transcription)
+
+        let transcriptionID = transcription.id
+        activePipelineTranscriptionID = transcriptionID
+        shouldCancelRecording = false
+
+        let enhancementConfiguration: EnhancementRuntimeConfiguration? = {
+            guard let enhancementService, let aiService = enhancementService.getAIService() else { return nil }
+            return ModeRuntimeResolver.currentEnhancementConfiguration(
+                mode: mode,
+                enhancementService: enhancementService,
+                aiService: aiService
+            )
+        }()
+
+        logger.notice(
+            "Finishing note parts=\(snapshot.parts.count, privacy: .public) duration=\(snapshot.totalDuration, format: .fixed(precision: 1), privacy: .public)s"
+        )
+
+        await pipeline.runNote(
+            transcription: transcription,
+            text: snapshot.combinedText,
+            enhancementConfiguration: enhancementConfiguration,
+            contextSnapshot: contextSnapshot,
+            outputConfiguration: ModeRuntimeResolver.outputConfiguration(mode: mode),
+            targetBundleIdentifier: snapshot.targetBundleIdentifier,
+            onStateChange: { [weak self] state in
+                guard let self, self.activePipelineTranscriptionID == transcriptionID else { return }
+                self.recordingState = state
+            },
+            shouldCancel: { [weak self] in
+                guard let self else { return false }
+                return self.canceledPipelineTranscriptionIDs.contains(transcriptionID)
+                    || (self.activePipelineTranscriptionID == transcriptionID && self.shouldCancelRecording)
+            },
+            onDismiss: { [weak self] in
+                guard let self, self.activePipelineTranscriptionID == transcriptionID else { return }
+                await self.recorderUIManager?.dismissRecorderPanel()
+            }
+        )
+
+        if activePipelineTranscriptionID == transcriptionID {
+            activePipelineTranscriptionID = nil
+            shouldCancelRecording = false
+            enhancementService?.clearCapturedContexts()
+            if recordingState == .enhancing || recordingState == .transcribing {
+                recordingState = .idle
+            }
+        }
+        canceledPipelineTranscriptionIDs.remove(transcriptionID)
+    }
+
+    /// Closes the open note without processing it. Each part stays in History.
+    func discardNote() {
+        guard noteSession.isActive else { return }
+        let hadParts = !noteSession.parts.isEmpty
+        noteSession.reset()
+        if hadParts {
+            NotificationManager.shared.showNotification(
+                title: String(localized: "Note discarded. Each part is still in History."),
+                type: .info,
+                duration: 4.0
+            )
         }
     }
 
@@ -679,6 +867,7 @@ class VoiceInkEngine: NSObject, ObservableObject {
     }
 
     func resetRecordingSession() async {
+        noteSession.reset()
         cancelCurrentSession()
         activeRecordingStartID = nil
         activePipelineTranscriptionID = nil

@@ -585,6 +585,19 @@ struct ModeConfigFormView: View {
             }
 
             if draft.outputMode != .respond {
+                Picker(selection: $draft.continuation) {
+                    ForEach(DictationContinuation.choices, id: \.self) { continuation in
+                        Text(continuation.displayName).tag(continuation)
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Text("Wait for More Dictation")
+                        InfoTip(
+                            "After you stop recording, the note stays open so you can record more parts. Everything is combined and processed as one note when you click Finish or the wait runs out. Press your recording shortcut to add a part, or Esc twice to discard the note."
+                        )
+                    }
+                }
+
                 Toggle(isOn: $draft.isDefault) {
                     HStack(spacing: 6) {
                         Text("Set as default")

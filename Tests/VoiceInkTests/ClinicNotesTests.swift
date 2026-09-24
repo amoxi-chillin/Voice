@@ -68,6 +68,34 @@ struct CustomPromptCodingTests {
     }
 }
 
+struct ModeContinuationCodingTests {
+    private func decodeMode(_ extraFields: String = "") throws -> ModeConfig {
+        let json = """
+            {"id":"00000000-0000-0000-0000-0000000000BB","name":"Clinic","isAIEnhancementEnabled":true\(extraFields)}
+            """
+        return try JSONDecoder().decode(ModeConfig.self, from: Data(json.utf8))
+    }
+
+    @Test func defaultsToOffForModesSavedBeforeContinuation() throws {
+        #expect(try decodeMode().continuation == .off)
+    }
+
+    @Test(arguments: [
+        DictationContinuation.off, .timed(seconds: 30), .untilFinished,
+    ])
+    func roundTripsContinuation(_ continuation: DictationContinuation) throws {
+        var mode = try decodeMode()
+        mode.continuation = continuation
+        let decoded = try JSONDecoder().decode(ModeConfig.self, from: JSONEncoder().encode(mode))
+
+        #expect(decoded.continuation == continuation)
+    }
+
+    @Test func ignoresUnreadableContinuationValues() throws {
+        #expect(try decodeMode(#","continuation":"sometimes""#).continuation == .off)
+    }
+}
+
 struct EnhancementTimeoutTests {
     private func words(_ count: Int) -> String {
         Array(repeating: "word", count: count).joined(separator: " ")
@@ -88,5 +116,72 @@ struct EnhancementTimeoutTests {
         let cap = max(EnhancementRequestSettings.timeout, 180)
 
         #expect(EnhancementRequestSettings.timeout(forInput: words(10_000)) == cap)
+    }
+}
+
+@MainActor
+struct DictationNoteSessionTests {
+    private func mode(_ continuation: DictationContinuation) -> ModeConfig {
+        var mode = ModeConfig(name: "Clinic", isAIEnhancementEnabled: true)
+        mode.continuation = continuation
+        return mode
+    }
+
+    private func part(_ text: String, duration: TimeInterval = 10) -> DictationNoteSession.Part {
+        DictationNoteSession.Part(id: UUID(), text: text, duration: duration)
+    }
+
+    @Test func combinesPartsInOrderAndResets() throws {
+        let session = DictationNoteSession()
+        session.begin(mode: mode(.untilFinished), contextSnapshot: nil)
+        session.append(part("HPI dictated first.", duration: 12), targetBundleIdentifier: "com.example.ehr")
+        session.append(part("Plan dictated second.", duration: 8), targetBundleIdentifier: nil)
+
+        let snapshot = try #require(session.takeSnapshot())
+
+        #expect(snapshot.combinedText == "HPI dictated first.\n\nPlan dictated second.")
+        #expect(snapshot.totalDuration == 20)
+        #expect(snapshot.targetBundleIdentifier == "com.example.ehr")
+        #expect(!session.isActive)
+        #expect(session.parts.isEmpty)
+    }
+
+    @Test func hasNothingToDeliverWithoutParts() {
+        let session = DictationNoteSession()
+        session.begin(mode: mode(.timed(seconds: 10)), contextSnapshot: nil)
+
+        #expect(session.takeSnapshot() == nil)
+        #expect(!session.isActive)
+    }
+
+    @Test func waitsForClickWhenUntilFinished() {
+        let session = DictationNoteSession()
+        session.begin(mode: mode(.untilFinished), contextSnapshot: nil)
+        session.scheduleFinish {}
+
+        #expect(session.finishDeadline == nil)
+    }
+
+    @Test func finishesWhenTimedWaitRunsOut() async throws {
+        let session = DictationNoteSession()
+        session.begin(mode: mode(.timed(seconds: 1)), contextSnapshot: nil)
+        var didFinish = false
+        session.scheduleFinish { didFinish = true }
+
+        #expect(session.finishDeadline != nil)
+        try await Task.sleep(for: .milliseconds(1_400))
+        #expect(didFinish)
+    }
+
+    @Test func newPartStopsTheCountdown() async throws {
+        let session = DictationNoteSession()
+        session.begin(mode: mode(.timed(seconds: 1)), contextSnapshot: nil)
+        var didFinish = false
+        session.scheduleFinish { didFinish = true }
+        session.cancelCountdown()
+
+        try await Task.sleep(for: .milliseconds(1_400))
+        #expect(!didFinish)
+        #expect(session.finishDeadline == nil)
     }
 }

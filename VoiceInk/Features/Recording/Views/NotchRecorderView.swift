@@ -4,9 +4,12 @@ struct NotchRecorderView<S: RecorderStateProvider & ObservableObject>: View {
     @ObservedObject var stateProvider: S
     @ObservedObject var recorder: Recorder
     @ObservedObject var assistantSession: AssistantSession
+    @ObservedObject var noteSession: DictationNoteSession
     let onRecordButtonTapped: () -> Void
     let onCloseTapped: () -> Void
     let onAssistantFollowUp: (String) -> Void
+    let onFinishNote: () -> Void
+    let onDiscardNote: () -> Void
     @AppStorage(RecorderDisplaySettingsKeys.showLiveTranscript) private var showLiveTranscript = true
     /// Bumped on every screen reconfiguration to invalidate the view. The notch metrics below
     /// come from AppKit, which SwiftUI cannot observe on its own, so without this the view keeps
@@ -20,6 +23,7 @@ struct NotchRecorderView<S: RecorderStateProvider & ObservableObject>: View {
         case active
         case liveText
         case assistant
+        case note
     }
 
     private var displayState: DisplayState {
@@ -30,7 +34,10 @@ struct NotchRecorderView<S: RecorderStateProvider & ObservableObject>: View {
         switch stateProvider.recordingState {
         case .recording:
             let shouldShowLive = showLiveTranscript && !stateProvider.partialTranscript.isEmpty
-            return shouldShowLive ? .liveText : .active
+            if shouldShowLive { return .liveText }
+            return noteSession.isActive ? .note : .active
+        case _ where noteSession.isActive:
+            return .note
         case .transcribing, .enhancing:
             return .active
         default:
@@ -86,7 +93,7 @@ struct NotchRecorderView<S: RecorderStateProvider & ObservableObject>: View {
         switch displayState {
         case .collapsed: return notchWidth
         case .active: return notchWidth + recordingSideExpansion * 2
-        case .liveText: return notchWidth + transcriptSideExpansion * 2
+        case .liveText, .note: return notchWidth + transcriptSideExpansion * 2
         case .assistant: return notchWidth + assistantSideExpansion * 2
         }
     }
@@ -97,12 +104,13 @@ struct NotchRecorderView<S: RecorderStateProvider & ObservableObject>: View {
         case .active: return mainRowHeight
         case .liveText: return mainRowHeight + transcriptPanelHeight
         case .assistant: return mainRowHeight + assistantPanelHeight
+        case .note: return mainRowHeight + NoteDraftPanelView.height
         }
     }
 
     private var sideExpansion: CGFloat {
         switch displayState {
-        case .liveText:
+        case .liveText, .note:
             return transcriptSideExpansion
         case .assistant:
             return assistantSideExpansion
@@ -112,7 +120,7 @@ struct NotchRecorderView<S: RecorderStateProvider & ObservableObject>: View {
     }
 
     private var sideEdgePadding: CGFloat {
-        displayState == .liveText || displayState == .assistant ? 20 : 16
+        displayState == .liveText || displayState == .assistant || displayState == .note ? 20 : 16
     }
 
     private var shouldShowCloseButton: Bool {
@@ -153,14 +161,16 @@ struct NotchRecorderView<S: RecorderStateProvider & ObservableObject>: View {
         VStack(spacing: 0) {
             mainRow
             liveTextPanel
+            notePanel
             assistantPanel
         }
         .frame(width: pillWidth, height: pillHeight)
         .background(Color.black)
         .clipShape(
             NotchShape(
-                topCornerRadius: displayState == .liveText ? 12 : 8,
-                bottomCornerRadius: displayState == .liveText || displayState == .assistant ? 22 : 16
+                topCornerRadius: displayState == .liveText || displayState == .note ? 12 : 8,
+                bottomCornerRadius: displayState == .liveText || displayState == .assistant || displayState == .note
+                    ? 22 : 16
             )
         )
     }
@@ -223,6 +233,23 @@ struct NotchRecorderView<S: RecorderStateProvider & ObservableObject>: View {
             }
         }
         .frame(height: displayState == .liveText ? transcriptPanelHeight : 0)
+        .clipped()
+    }
+
+    private var notePanel: some View {
+        VStack(spacing: 0) {
+            if displayState == .note {
+                Divider().background(Color.white.opacity(0.15))
+                NoteDraftPanelView(
+                    noteSession: noteSession,
+                    recordingState: stateProvider.recordingState,
+                    onFinish: onFinishNote,
+                    onDiscard: onDiscardNote
+                )
+                .padding(.horizontal, 6)
+            }
+        }
+        .frame(height: displayState == .note ? NoteDraftPanelView.height : 0)
         .clipped()
     }
 

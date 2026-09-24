@@ -25,6 +25,15 @@ enum EnhancementFailureFormatter {
         String(format: String(localized: "Enhancement failed: %@"), description)
     }
 
+    /// True for the failure message that is stored in place of enhanced text when enhancement fails.
+    static func isFailureMessage(_ text: String) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let prefixes = Set([message(description: ""), "Enhancement failed:"])
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        return prefixes.contains { trimmed.range(of: $0, options: [.caseInsensitive, .anchored]) != nil }
+    }
+
     static func reEnhancementMessage(description: String) -> String {
         String(format: String(localized: "Re-enhancement failed: %@"), description)
     }

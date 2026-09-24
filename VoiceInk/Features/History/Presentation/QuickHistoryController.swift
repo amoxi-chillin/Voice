@@ -198,11 +198,10 @@ final class QuickHistoryController: NSObject {
 
 extension Transcription {
     var preferredHistoryText: String {
-        guard let enhancedText, !enhancedText.isEmpty else { return text }
-        return enhancedText
+        usableEnhancedText ?? text
     }
 
     var hasEnhancedHistoryText: Bool {
-        enhancedText?.isEmpty == false
+        usableEnhancedText != nil
     }
 }

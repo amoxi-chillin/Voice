@@ -65,6 +65,17 @@ final class Transcription {
         self.transcriptionStatus = transcriptionStatus.rawValue
     }
 
+    /// The enhanced text, or nil when there is none or enhancement failed and stored its error instead.
+    var usableEnhancedText: String? {
+        guard let enhancedText,
+            !enhancedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            !EnhancementFailureFormatter.isFailureMessage(enhancedText)
+        else {
+            return nil
+        }
+        return enhancedText
+    }
+
     func markAsCanceledTranscription(
         duration: TimeInterval? = nil,
         modelName: String? = nil

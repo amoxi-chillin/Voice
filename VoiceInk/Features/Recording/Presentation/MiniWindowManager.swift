@@ -14,9 +14,12 @@ class MiniWindowManager {
         engine: VoiceInkEngine,
         recorder: Recorder,
         assistantSession: AssistantSession,
+        noteSession: DictationNoteSession,
         onRecordButtonTapped: @escaping () -> Void,
         onCloseTapped: @escaping () -> Void,
-        onAssistantFollowUp: @escaping (String) -> Void
+        onAssistantFollowUp: @escaping (String) -> Void,
+        onFinishNote: @escaping () -> Void,
+        onDiscardNote: @escaping () -> Void
     ) {
         self.makeView = {
             AnyView(
@@ -24,9 +27,12 @@ class MiniWindowManager {
                     stateProvider: engine,
                     recorder: recorder,
                     assistantSession: assistantSession,
+                    noteSession: noteSession,
                     onRecordButtonTapped: onRecordButtonTapped,
                     onCloseTapped: onCloseTapped,
-                    onAssistantFollowUp: onAssistantFollowUp
+                    onAssistantFollowUp: onAssistantFollowUp,
+                    onFinishNote: onFinishNote,
+                    onDiscardNote: onDiscardNote
                 )
             )
         }

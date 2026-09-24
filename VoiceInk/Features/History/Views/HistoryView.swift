@@ -501,10 +501,7 @@ private struct HistoryCardRow: View {
     @State private var didCopyCollapsedText = false
 
     private var preferredCopyText: String {
-        guard let enhancedText = transcription.enhancedText, !enhancedText.isEmpty else {
-            return transcription.text
-        }
-        return enhancedText
+        transcription.usableEnhancedText ?? transcription.text
     }
 
     private var displayText: String {

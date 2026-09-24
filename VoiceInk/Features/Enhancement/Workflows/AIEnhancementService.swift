@@ -29,9 +29,6 @@ class AIEnhancementService: ObservableObject {
     private let aiService: AIService
     private let screenCaptureService: ScreenCaptureService
     private let customVocabularyService: CustomVocabularyService
-    private var requestTimeout: TimeInterval {
-        EnhancementRequestSettings.timeout
-    }
     private let rateLimitInterval: TimeInterval = 1.0
     private var lastRequestTime: Date?
     private let modelContext: ModelContext
@@ -244,7 +241,7 @@ class AIEnhancementService: ObservableObject {
                 messages: [.user(formattedText)],
                 systemPrompt: systemMessage,
                 localUserPrompt: formattedText,
-                timeout: requestTimeout
+                timeout: EnhancementRequestSettings.timeout(forInput: text)
             )
             if let openRouterCompletion = completion.openRouterCompletion {
                 let routedProvider = openRouterCompletion.provider ?? "unknown"
@@ -447,15 +444,34 @@ class AIEnhancementService: ObservableObject {
     func addPrompt(
         title: String,
         promptText: String,
-        useSystemInstructions: Bool = true
+        useSystemInstructions: Bool = true,
+        outputTemplate: String = "",
+        styleExamples: String = ""
     ) -> CustomPrompt {
         let newPrompt = CustomPrompt(
             title: title,
             promptText: promptText,
-            useSystemInstructions: useSystemInstructions
+            useSystemInstructions: useSystemInstructions,
+            outputTemplate: outputTemplate,
+            styleExamples: styleExamples
         )
         customPrompts.append(newPrompt)
         return newPrompt
+    }
+
+    /// Adds a built-in template prompt under its fixed ID if the user doesn't have it yet.
+    @discardableResult
+    func ensureTemplatePrompt(id: UUID) -> CustomPrompt? {
+        if let existingPrompt = customPrompts.first(where: { $0.id == id }) {
+            return existingPrompt
+        }
+
+        guard let seedPrompt = PromptTemplates.seedPrompts.first(where: { $0.id == id }) else {
+            return nil
+        }
+
+        customPrompts.append(seedPrompt)
+        return seedPrompt
     }
 
     func updatePrompt(_ prompt: CustomPrompt) {

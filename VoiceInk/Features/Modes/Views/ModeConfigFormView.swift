@@ -12,6 +12,7 @@ struct ModeConfigFormView: View {
     let openPromptEditor: (PromptEditorView.Mode) -> Void
 
     @EnvironmentObject private var aiService: AIService
+    @EnvironmentObject private var enhancementService: AIEnhancementService
     @EnvironmentObject private var modeWarmupStore: ModeFormWarmupStore
     @FocusState private var isNameFieldFocused: Bool
 
@@ -131,6 +132,9 @@ struct ModeConfigFormView: View {
 
     private var formContent: some View {
         Form {
+            if case .add = mode {
+                presetSection
+            }
             ModeTriggerSection(
                 appConfigs: $draft.appConfigs,
                 websiteConfigs: $draft.websiteConfigs,
@@ -142,6 +146,7 @@ struct ModeConfigFormView: View {
             transcriptionSection
             aiEnhancementSection
             advancedSection
+            patientPrivacySection
         }
         .formStyle(.grouped)
         .scrollContentBackground(.hidden)
@@ -585,6 +590,19 @@ struct ModeConfigFormView: View {
             }
 
             if draft.outputMode != .respond {
+                Picker(selection: $draft.continuation) {
+                    ForEach(DictationContinuation.choices, id: \.self) { continuation in
+                        Text(continuation.displayName).tag(continuation)
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Text("Wait for More Dictation")
+                        InfoTip(
+                            "After you stop recording, the note stays open so you can record more parts. Everything is combined and processed as one note when you click Finish or the wait runs out. Press your recording shortcut to add a part, or Esc twice to discard the note."
+                        )
+                    }
+                }
+
                 Toggle(isOn: $draft.isDefault) {
                     HStack(spacing: 6) {
                         Text("Set as default")
@@ -610,6 +628,117 @@ struct ModeConfigFormView: View {
 
             if draft.outputMode == .customCommand {
                 customCommandControls
+            }
+        }
+    }
+
+    // MARK: - Clinic Notes
+
+    private var presetSection: some View {
+        Section("Start From a Preset") {
+            HStack(spacing: 12) {
+                Image(systemName: "stethoscope")
+                    .font(.system(size: 16))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 22)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Clinic Notes")
+                    Text("Dictate in parts, then get one note in your own format.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer(minLength: 12)
+
+                Button("Use Preset", action: applyClinicNotesPreset)
+            }
+        }
+    }
+
+    private func applyClinicNotesPreset() {
+        if draft.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            draft.name = String(localized: "Clinic Notes")
+        }
+        draft.icon = .symbol("stethoscope")
+
+        if let prompt = enhancementService.ensureTemplatePrompt(id: PromptTemplates.clinicNotePromptId) {
+            modeWarmupStore.refreshSnapshot()
+            draft.selectedPromptId = prompt.id
+        }
+
+        // Prefer a provider that keeps patient data on this Mac. Refine ignores prompts, so it can't format notes.
+        let promptCapableProviders = aiProviderOptions.filter { $0 != .voiceInkRefine }
+        let provider =
+            promptCapableProviders.first { ModeDataLocality.isOnDevice($0, modelName: nil) }
+            ?? configuredSelectedAIProvider.flatMap { promptCapableProviders.contains($0) ? $0 : nil }
+            ?? promptCapableProviders.first
+        if let provider, provider != configuredSelectedAIProvider {
+            draft.selectedAIProvider = provider.rawValue
+            switch provider {
+            case .localCLI:
+                draft.selectedAIModel = nil
+            case .ollama:
+                draft.selectedAIModel = warmupSnapshot.selectedModel(for: provider)
+            default:
+                draft.selectedAIModel = provider.defaultModel
+            }
+        }
+        draft.isAIEnhancementEnabled = provider != nil
+
+        if let model = selectedTranscriptionModel, TranscriptionRealtimeSupport.isRequired(for: model) {
+            draft.isRealtimeTranscriptionEnabled = true
+        } else {
+            draft.isRealtimeTranscriptionEnabled = false
+        }
+        draft.isTextFormattingEnabled = false
+        draft.useSelectedTextContext = false
+        draft.useClipboardContext = false
+        draft.useScreenCapture = false
+        draft.continuation = .timed(seconds: 30)
+        draft.outputMode = .paste
+        draft.autoSendKey = .none
+    }
+
+    /// Where a clinic-note mode would send patient information off this Mac.
+    private var patientDataDestinations: [String] {
+        guard draft.selectedPromptId == PromptTemplates.clinicNotePromptId else { return [] }
+
+        var destinations: [String] = []
+        if let model = selectedTranscriptionModel, !ModeDataLocality.isOnDevice(model) {
+            destinations.append(
+                String(format: String(localized: "audio to %@"), model.provider.rawValue))
+        }
+        if draft.isAIEnhancementEnabled,
+            let provider = configuredSelectedAIProvider,
+            !ModeDataLocality.isOnDevice(provider, modelName: draft.selectedAIModel)
+        {
+            destinations.append(
+                String(format: String(localized: "transcripts to %@"), provider.rawValue))
+        }
+        return destinations
+    }
+
+    @ViewBuilder
+    private var patientPrivacySection: some View {
+        let destinations = patientDataDestinations
+        if !destinations.isEmpty {
+            Section("Patient Privacy") {
+                Label {
+                    Text(
+                        String(
+                            format: String(
+                                localized:
+                                    "This mode sends %@. Use on-device models for patient information, or make sure your agreement with each provider covers it."
+                            ),
+                            destinations.formatted(.list(type: .and))
+                        )
+                    )
+                    .fixedSize(horizontal: false, vertical: true)
+                } icon: {
+                    Image(systemName: "exclamationmark.shield.fill")
+                        .foregroundStyle(.orange)
+                }
             }
         }
     }

@@ -96,6 +96,7 @@ class RecorderUIManager: ObservableObject, RecorderPanelPresenting {
                     engine: engine,
                     recorder: recorder,
                     assistantSession: engine.assistantSession,
+                    noteSession: engine.noteSession,
                     onRecordButtonTapped: { [weak self] in
                         Task { @MainActor in
                             await self?.toggleRecorderPanel()
@@ -109,6 +110,16 @@ class RecorderUIManager: ObservableObject, RecorderPanelPresenting {
                     onAssistantFollowUp: { [weak engine] text in
                         Task { @MainActor in
                             await engine?.sendAssistantFollowUp(text)
+                        }
+                    },
+                    onFinishNote: { [weak self] in
+                        Task { @MainActor in
+                            await self?.finishNote()
+                        }
+                    },
+                    onDiscardNote: { [weak self] in
+                        Task { @MainActor in
+                            await self?.discardNote()
                         }
                     }
                 )
@@ -120,6 +131,7 @@ class RecorderUIManager: ObservableObject, RecorderPanelPresenting {
                     engine: engine,
                     recorder: recorder,
                     assistantSession: engine.assistantSession,
+                    noteSession: engine.noteSession,
                     onRecordButtonTapped: { [weak self] in
                         Task { @MainActor in
                             await self?.toggleRecorderPanel()
@@ -133,6 +145,16 @@ class RecorderUIManager: ObservableObject, RecorderPanelPresenting {
                     onAssistantFollowUp: { [weak engine] text in
                         Task { @MainActor in
                             await engine?.sendAssistantFollowUp(text)
+                        }
+                    },
+                    onFinishNote: { [weak self] in
+                        Task { @MainActor in
+                            await self?.finishNote()
+                        }
+                    },
+                    onDiscardNote: { [weak self] in
+                        Task { @MainActor in
+                            await self?.discardNote()
                         }
                     }
                 )
@@ -235,6 +257,9 @@ class RecorderUIManager: ObservableObject, RecorderPanelPresenting {
                         modeId: modeId,
                         isAssistantFollowUp: true
                     )
+                } else if engine.noteSession.isActive {
+                    SoundManager.shared.playStartSound()
+                    await engine.toggleRecord(modeId: modeId)
                 } else {
                     await dismissRecorderPanel()
                 }
@@ -251,6 +276,8 @@ class RecorderUIManager: ObservableObject, RecorderPanelPresenting {
     func dismissRecorderPanel() async {
         guard let engine = engine else { return }
 
+        // A note that is waiting for more dictation must never be delivered from a hidden panel.
+        engine.discardNote()
         hideRecorderPanel()
         isRecorderPanelVisible = false
         engine.assistantSession.reset()
@@ -267,7 +294,24 @@ class RecorderUIManager: ObservableObject, RecorderPanelPresenting {
 
     func cancelRecording() async {
         guard let engine = engine else { return }
+        let isCancelingNotePart = engine.noteSession.isActive && engine.recordingState != .idle
         await engine.cancelRecording()
+
+        if isCancelingNotePart {
+            // Only the part in progress is dropped; the note stays open for more dictation.
+            engine.resumeNoteCountdown()
+            return
+        }
+
+        await dismissRecorderPanel()
+    }
+
+    func finishNote() async {
+        await engine?.finishNote()
+    }
+
+    func discardNote() async {
+        guard let engine, engine.recordingState == .idle else { return }
         await dismissRecorderPanel()
     }
 

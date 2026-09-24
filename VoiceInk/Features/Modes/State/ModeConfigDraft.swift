@@ -22,6 +22,7 @@ struct ModeConfigDraft {
     var outputMode: ModeOutputMode
     var autoSendKey: AutoSendKey
     var customCommand: String
+    var continuation: DictationContinuation
     var isDefault: Bool
     var isTranscriptionFormattingExpanded: Bool
 
@@ -53,6 +54,7 @@ struct ModeConfigDraft {
             outputMode = .paste
             autoSendKey = .none
             customCommand = inheritedConfig?.customCommand?.command ?? ""
+            continuation = .off
             isDefault = false
             isTranscriptionFormattingExpanded = false
             sourceConfig = nil
@@ -80,6 +82,7 @@ struct ModeConfigDraft {
             outputMode = latestConfig.outputMode
             autoSendKey = latestConfig.autoSendKey
             customCommand = latestConfig.customCommand?.command ?? ""
+            continuation = latestConfig.continuation
             isDefault = latestConfig.isDefault
             isTranscriptionFormattingExpanded = false
             sourceConfig = latestConfig
@@ -159,6 +162,7 @@ struct ModeConfigDraft {
 
         if outputMode == .respond {
             isDefault = false
+            continuation = .off
         }
     }
 
@@ -166,6 +170,7 @@ struct ModeConfigDraft {
         let savedAutoSendKey: AutoSendKey = outputMode.usesPasteOptions ? autoSendKey : .none
         let savedIsDefault = outputMode == .respond ? false : isDefault
         let savedCustomCommand = makeCustomCommand()
+        let savedContinuation: DictationContinuation = outputMode == .respond ? .off : continuation
 
         switch mode {
         case .add:
@@ -191,6 +196,7 @@ struct ModeConfigDraft {
                 outputMode: outputMode,
                 autoSendKey: savedAutoSendKey,
                 customCommand: savedCustomCommand,
+                continuation: savedContinuation,
                 isDefault: savedIsDefault
             )
 
@@ -216,6 +222,7 @@ struct ModeConfigDraft {
             updatedConfig.outputMode = outputMode
             updatedConfig.autoSendKey = savedAutoSendKey
             updatedConfig.customCommand = savedCustomCommand
+            updatedConfig.continuation = savedContinuation
             updatedConfig.isDefault = savedIsDefault
             return updatedConfig
         }

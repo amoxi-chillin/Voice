@@ -70,6 +70,12 @@ final class TranscriptionAutoCleanupService {
             return
         }
 
+        // A failed dictation stays until the next sweep so its audio can still be retranscribed.
+        guard transcription.transcriptionStatus == TranscriptionStatus.completed.rawValue else {
+            logger.notice("Keeping unsuccessful transcription for retry until the next cleanup sweep")
+            return
+        }
+
         if let urlString = transcription.audioFileURL,
             let url = URL(string: urlString)
         {

@@ -102,8 +102,7 @@ class VoiceInkEngine: NSObject, ObservableObject {
     private var canceledPipelineTranscriptionIDs = Set<UUID>()
     private var activeRecordingUseCase: RecordingUseCase = .newSession
     private var activePipelineUseCase: RecordingUseCase = .newSession
-    private var activeRecordingContextStore: RecordingContextSnapshotStore?
-    private var activeRecordingContextTasks: [Task<Void, Never>] = []
+    private var activeRecordingContext: RecordingContextCapture?
     private var voiceInkRefinePreparationTask: Task<Void, Never>?
 
     let recorder = Recorder()
@@ -204,7 +203,7 @@ class VoiceInkEngine: NSObject, ObservableObject {
                     await runPipeline(
                         on: transcription,
                         audioURL: recordedFile,
-                        contextStore: activeRecordingContextStore
+                        recordingContext: activeRecordingContext
                     )
                 } else {
                     await finishActiveRecorderCancellation()
@@ -293,7 +292,9 @@ class VoiceInkEngine: NSObject, ObservableObject {
                                 return
                             }
 
-                            self.startRecordingContextCapture()
+                            self.startRecordingContextCapture(
+                                isAssistantFollowUp: recordingUseCase.isAssistantFollowUp
+                            )
 
                             let modelResolution = ModeRuntimeResolver.transcriptionModelResolution(
                                 transcriptionModelManager: self.transcriptionModelManager
@@ -510,18 +511,46 @@ class VoiceInkEngine: NSObject, ObservableObject {
 
     // MARK: - Recording Context
 
-    private func startRecordingContextCapture() {
+    /// Called once the recording's app or URL mode is applied. See `RecordingContextCapturePolicy` for how later
+    /// mode changes are handled.
+    private func startRecordingContextCapture(isAssistantFollowUp: Bool) {
         clearActiveRecordingContext()
 
-        let store = RecordingContextSnapshotStore()
-        activeRecordingContextStore = store
-        activeRecordingContextTasks = RecordingContextCaptureService.startCapture(into: store)
+        let recordingContext = RecordingContextCapture { [weak self] in
+            self?.recordingContextSources(isAssistantFollowUp: isAssistantFollowUp) ?? []
+        }
+        activeRecordingContext = recordingContext
+        recordingContext.start(followingModeChanges: ModeManager.shared.objectWillChange)
+    }
+
+    private func recordingContextSources(isAssistantFollowUp: Bool) -> RecordingContextSources {
+        guard let enhancementService,
+            let aiService = enhancementService.getAIService()
+        else {
+            return []
+        }
+
+        func enhancementConfiguration(for mode: ModeConfig?) -> EnhancementRuntimeConfiguration {
+            ModeRuntimeResolver.currentEnhancementConfiguration(
+                mode: mode,
+                enhancementService: enhancementService,
+                aiService: aiService
+            )
+        }
+
+        return RecordingContextCapturePolicy.sourcesToCapture(
+            current: enhancementConfiguration(for: nil),
+            triggerWordCandidates: RecordingContextCapturePolicy.triggerWordModesUsingContext(
+                in: ModeManager.shared.configurations
+            ).map(enhancementConfiguration(for:)),
+            isAssistantFollowUp: isAssistantFollowUp,
+            isConfigured: enhancementService.isConfigured(for:)
+        )
     }
 
     private func clearActiveRecordingContext() {
-        activeRecordingContextTasks.forEach { $0.cancel() }
-        activeRecordingContextTasks.removeAll()
-        activeRecordingContextStore = nil
+        activeRecordingContext?.cancel()
+        activeRecordingContext = nil
     }
 
     // MARK: - Pipeline Dispatch
@@ -529,7 +558,7 @@ class VoiceInkEngine: NSObject, ObservableObject {
     private func runPipeline(
         on transcription: Transcription,
         audioURL: URL,
-        contextStore: RecordingContextSnapshotStore?
+        recordingContext: RecordingContextCapture?
     ) async {
         guard
             let transcriptionConfiguration = currentSessionTranscriptionConfiguration
@@ -572,7 +601,7 @@ class VoiceInkEngine: NSObject, ObservableObject {
             },
             recordingContextSnapshot: {
                 await MainActor.run {
-                    contextStore?.snapshot
+                    recordingContext?.finish()
                 }
             },
             outputConfiguration: {

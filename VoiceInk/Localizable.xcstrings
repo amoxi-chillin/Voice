@@ -49,6 +49,58 @@
         }
       }
     },
+    "%lld interrupted recordings saved to History" : {
+      "localizations" : {
+        "de" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld unterbrochene Aufnahme im Verlauf gespeichert"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld unterbrochene Aufnahmen im Verlauf gespeichert"
+                }
+              }
+            }
+          }
+        },
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld interrupted recording saved to History"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld interrupted recordings saved to History"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans" : {
+          "variations" : {
+            "plural" : {
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "已将 %lld 条中断的录音保存到历史记录"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "'%@' already exists in word replacements" : {
       "localizations" : {
         "de" : {
@@ -1450,6 +1502,54 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "Open History" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verlauf öffnen"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "打开历史记录"
+          }
+        }
+      }
+    },
+    "Recording interrupted before any audio was saved." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aufnahme unterbrochen, bevor Audio gespeichert wurde."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "录音在保存任何音频之前已中断。"
+          }
+        }
+      }
+    },
+    "Recording interrupted. Use Retranscribe to transcribe the saved audio." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aufnahme unterbrochen. Nutzen Sie „Erneut transkribieren“, um das gespeicherte Audio zu transkribieren."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "录音已中断。请使用“重新转写”转写已保存的音频。"
           }
         }
       }

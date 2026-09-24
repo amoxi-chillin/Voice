@@ -96,15 +96,22 @@ final class TranscriptionAutoCleanupService {
         }
     }
 
-    private func sweepOldTranscriptions(worker: TranscriptionCleanupWorker) async {
+    /// Transcriptions older than this are deleted, or nil when transcript auto-delete is off.
+    static func retentionCutoff() -> Date? {
         guard UserDefaults.standard.bool(forKey: CleanupSettingsKeys.isTranscriptionCleanupEnabled) else {
-            return
+            return nil
         }
 
         let retentionMinutes = UserDefaults.standard.integer(forKey: CleanupSettingsKeys.transcriptionRetentionMinutes)
         let effectiveMinutes = max(retentionMinutes, 0)
 
-        let cutoffDate = Date().addingTimeInterval(TimeInterval(-effectiveMinutes * 60))
+        return Date().addingTimeInterval(TimeInterval(-effectiveMinutes * 60))
+    }
+
+    private func sweepOldTranscriptions(worker: TranscriptionCleanupWorker) async {
+        guard let cutoffDate = Self.retentionCutoff() else {
+            return
+        }
 
         do {
             let deletedCount = try await worker.sweepOldTranscriptions(before: cutoffDate)

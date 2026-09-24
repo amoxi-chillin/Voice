@@ -8,6 +8,8 @@ import Testing
 final class InterruptedRecordingRecoveryTests {
     let container: ModelContainer
     let recordingsDirectory: URL
+    let defaultsSuiteName = "InterruptedRecordingRecoveryTests-\(UUID().uuidString)"
+    let defaults: UserDefaults
 
     init() throws {
         container = try ModelContainer(
@@ -17,10 +19,12 @@ final class InterruptedRecordingRecoveryTests {
         recordingsDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("InterruptedRecordingRecoveryTests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: recordingsDirectory, withIntermediateDirectories: true)
+        defaults = UserDefaults(suiteName: defaultsSuiteName)!
     }
 
     deinit {
         try? FileManager.default.removeItem(at: recordingsDirectory)
+        defaults.removePersistentDomain(forName: defaultsSuiteName)
     }
 
     private var context: ModelContext { container.mainContext }
@@ -103,6 +107,42 @@ final class InterruptedRecordingRecoveryTests {
         #expect(try allTranscriptions().isEmpty)
     }
 
+    @Test func keepsTextOfNoteInterruptedWhileFinishing() throws {
+        // A finished multi-part note is saved as pending with its combined text and no audio.
+        let transcription = Transcription(
+            text: "S: Left knee pain for 3 days.",
+            duration: 42,
+            transcriptionStatus: .pending
+        )
+        context.insert(transcription)
+
+        recover(launchDate: afterLaunch)
+
+        #expect(transcription.text == "S: Left knee pain for 3 days.")
+        #expect(transcription.transcriptionStatus == TranscriptionStatus.completed.rawValue)
+    }
+
+    @Test func keepsRecoveredRecordsFromAutoDelete() throws {
+        let audioURL = try writeUnclosedRecording(frameCount: 16_000)
+        let transcription = insertPending(audioURL: audioURL)
+
+        recover(launchDate: afterLaunch)
+
+        #expect(InterruptedRecordingRecovery.keptTranscriptionIDs(defaults: defaults) == [transcription.id])
+    }
+
+    @Test func forgetsKeptRecordsOnceDeleted() throws {
+        let audioURL = try writeUnclosedRecording(frameCount: 16_000)
+        let transcription = insertPending(audioURL: audioURL)
+        recover(launchDate: afterLaunch)
+
+        context.delete(transcription)
+        try context.save()
+        recover(launchDate: afterLaunch)
+
+        #expect(InterruptedRecordingRecovery.keptTranscriptionIDs(defaults: defaults).isEmpty)
+    }
+
     // MARK: - Helpers
 
     @discardableResult
@@ -110,7 +150,8 @@ final class InterruptedRecordingRecoveryTests {
         InterruptedRecordingRecovery.recover(
             modelContext: context,
             recordingsDirectory: recordingsDirectory,
-            launchDate: launchDate
+            launchDate: launchDate,
+            defaults: defaults
         ).count
     }
 

@@ -97,7 +97,7 @@ final class TranscriptionAutoCleanupService {
     }
 
     /// Transcriptions older than this are deleted, or nil when transcript auto-delete is off.
-    static func retentionCutoff() -> Date? {
+    private static func retentionCutoff() -> Date? {
         guard UserDefaults.standard.bool(forKey: CleanupSettingsKeys.isTranscriptionCleanupEnabled) else {
             return nil
         }
@@ -114,7 +114,10 @@ final class TranscriptionAutoCleanupService {
         }
 
         do {
-            let deletedCount = try await worker.sweepOldTranscriptions(before: cutoffDate)
+            let deletedCount = try await worker.sweepOldTranscriptions(
+                before: cutoffDate,
+                keeping: InterruptedRecordingRecovery.keptTranscriptionIDs()
+            )
             if deletedCount > 0 {
                 logger.notice("Cleaned up \(deletedCount, privacy: .public) old transcription(s)")
                 NotificationCenter.default.post(name: .transcriptionDeleted, object: nil)
@@ -151,10 +154,10 @@ final class TranscriptionAutoCleanupService {
 
 @ModelActor
 private actor TranscriptionCleanupWorker {
-    func sweepOldTranscriptions(before cutoffDate: Date) throws -> Int {
+    func sweepOldTranscriptions(before cutoffDate: Date, keeping keptIDs: [UUID]) throws -> Int {
         let descriptor = FetchDescriptor<Transcription>(
             predicate: #Predicate<Transcription> { transcription in
-                transcription.timestamp < cutoffDate
+                transcription.timestamp < cutoffDate && !keptIDs.contains(transcription.id)
             }
         )
         let transcriptions = try modelContext.fetch(descriptor)

@@ -63,9 +63,11 @@ final class AudioCleanupManager {
         do {
             return try { () throws -> (Int, Int64, [Transcription]) in
                 // Create a predicate to find transcriptions with audio files older than the cutoff date
+                let keptIDs = InterruptedRecordingRecovery.keptTranscriptionIDs()
                 let descriptor = FetchDescriptor<Transcription>(
                     predicate: #Predicate<Transcription> { transcription in
                         transcription.timestamp < cutoffDate && transcription.audioFileURL != nil
+                            && !keptIDs.contains(transcription.id)
                     }
                 )
 
@@ -116,9 +118,11 @@ final class AudioCleanupManager {
         do {
             try { () throws -> Void in
                 // Create a predicate to find transcriptions with audio files older than the cutoff date
+                let keptIDs = InterruptedRecordingRecovery.keptTranscriptionIDs()
                 let descriptor = FetchDescriptor<Transcription>(
                     predicate: #Predicate<Transcription> { transcription in
                         transcription.timestamp < cutoffDate && transcription.audioFileURL != nil
+                            && !keptIDs.contains(transcription.id)
                     }
                 )
 

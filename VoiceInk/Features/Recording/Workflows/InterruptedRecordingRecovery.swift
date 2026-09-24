@@ -17,12 +17,27 @@ enum InterruptedRecordingRecovery {
         String(localized: "Recording interrupted before any audio was saved.")
     }
 
+    /// Recovered records that History auto-delete and audio cleanup skip, so an interrupted dictation
+    /// stays until the user deletes it.
+    static let keptTranscriptionIDsKey = "InterruptedRecordingKeptTranscriptionIDs"
+
+    static func keptTranscriptionIDs(defaults: UserDefaults = .standard) -> [UUID] {
+        (defaults.stringArray(forKey: keptTranscriptionIDsKey) ?? []).compactMap(UUID.init(uuidString:))
+    }
+
     /// Recovers records and recordings left by a previous run. Must run before orphan audio cleanup.
     /// Only records and files older than `launchDate` are touched, so a recording started
     /// during this launch is never mistaken for an interrupted one.
     /// - Returns: The recovered History records.
     @discardableResult
-    static func recover(modelContext: ModelContext, recordingsDirectory: URL, launchDate: Date) -> [Transcription] {
+    static func recover(
+        modelContext: ModelContext,
+        recordingsDirectory: URL,
+        launchDate: Date,
+        defaults: UserDefaults = .standard
+    ) -> [Transcription] {
+        pruneKeptTranscriptionIDs(modelContext: modelContext, defaults: defaults)
+
         let recovered =
             recoverPendingTranscriptions(modelContext: modelContext, launchDate: launchDate)
             + recoverOrphanRecordings(
@@ -35,6 +50,8 @@ enum InterruptedRecordingRecovery {
         do {
             try modelContext.save()
             logger.notice("Recovered \(recovered.count, privacy: .public) interrupted recording(s)")
+            let keptIDs = keptTranscriptionIDs(defaults: defaults) + recovered.map(\.id)
+            defaults.set(keptIDs.map(\.uuidString), forKey: keptTranscriptionIDsKey)
             return recovered
         } catch {
             logger.error("Failed to save recovered recordings: \(error, privacy: .public)")
@@ -66,6 +83,12 @@ enum InterruptedRecordingRecovery {
         }
 
         for transcription in transcriptions {
+            // A multi-part note interrupted while it was being finished has its combined text but no audio.
+            guard transcription.text.isEmpty else {
+                transcription.transcriptionStatus = TranscriptionStatus.completed.rawValue
+                continue
+            }
+
             let outcome = transcription.audioFileURL
                 .flatMap { URL(string: $0) }
                 .flatMap { repairRecording(at: $0) }
@@ -135,6 +158,20 @@ enum InterruptedRecordingRecovery {
         }
 
         return recovered
+    }
+
+    /// Forgets kept IDs whose records the user has since deleted.
+    private static func pruneKeptTranscriptionIDs(modelContext: ModelContext, defaults: UserDefaults) {
+        let keptIDs = keptTranscriptionIDs(defaults: defaults)
+        guard !keptIDs.isEmpty else { return }
+
+        let descriptor = FetchDescriptor<Transcription>(
+            predicate: #Predicate<Transcription> { transcription in
+                keptIDs.contains(transcription.id)
+            }
+        )
+        guard let existingIDs = try? Set(modelContext.fetch(descriptor).map(\.id)) else { return }
+        defaults.set(keptIDs.filter(existingIDs.contains).map(\.uuidString), forKey: keptTranscriptionIDsKey)
     }
 
     private static func repairRecording(at url: URL) -> WAVHeaderRepair.Outcome? {

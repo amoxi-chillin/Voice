@@ -477,11 +477,7 @@ struct VoiceInkApp: App {
 
     @MainActor
     private static func showRecoveredRecordingsNotification(for transcriptions: [Transcription]) {
-        // Transcript auto-delete removes recoveries older than its retention period right after launch.
-        let retentionCutoff = TranscriptionAutoCleanupService.retentionCutoff()
-        let count = transcriptions.filter { transcription in
-            retentionCutoff.map { transcription.timestamp >= $0 } ?? true
-        }.count
+        let count = transcriptions.count
         guard count > 0 else { return }
 
         NotificationManager.shared.showNotification(

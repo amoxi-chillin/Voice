@@ -11,6 +11,8 @@ class CursorPaster {
     enum PasteResult: Equatable {
         case commandPosted
         case commandNotPosted
+        /// The text could not be put on the clipboard, so it is neither pasted nor copied.
+        case clipboardUnavailable
 
         var didPostPasteCommand: Bool {
             self == .commandPosted
@@ -58,7 +60,7 @@ class CursorPaster {
             )
         else {
             logger.error("Failed to prepare clipboard for paste")
-            return PasteOutcome(result: .commandNotPosted, autoLearnGeneration: nil)
+            return PasteOutcome(result: .clipboardUnavailable, autoLearnGeneration: nil)
         }
 
         await wait(prePasteDelay)
@@ -77,7 +79,8 @@ class CursorPaster {
             pasteResult = await postPasteCommand()
             autoLearnGeneration = nil
         }
-        if shouldRestoreClipboard {
+        // If the paste never happened, leave the text on the clipboard so the user can paste it.
+        if shouldRestoreClipboard && pasteResult.didPostPasteCommand {
             scheduleClipboardRestore(
                 savedContents,
                 expectedText: text,

@@ -176,6 +176,19 @@ final class TranscriptionDelivery {
         Task { @MainActor in
             let pasteOutcome = await pasteTask.value
 
+            guard pasteOutcome.result.didPostPasteCommand else {
+                let title: String
+                if pasteOutcome.result == .clipboardUnavailable {
+                    title = String(localized: "Couldn't paste. The text is saved in History.")
+                } else if !AXIsProcessTrusted() {
+                    title = String(localized: "Couldn't paste without Accessibility access. The text is on your clipboard.")
+                } else {
+                    title = String(localized: "Couldn't paste. The text is on your clipboard.")
+                }
+                NotificationManager.shared.showNotification(title: title, type: .warning, duration: 6.0)
+                return
+            }
+
             if autoSendKey.isEnabled {
                 try? await Task.sleep(nanoseconds: 500_000_000)
                 if let generation = pasteOutcome.autoLearnGeneration {

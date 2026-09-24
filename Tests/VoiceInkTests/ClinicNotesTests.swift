@@ -120,6 +120,28 @@ struct EnhancementTimeoutTests {
 }
 
 @MainActor
+struct ModeDataLocalityTests {
+    @Test(arguments: [
+        "http://localhost:11434", "http://127.0.0.1:1234/v1", "http://[::1]:8080", "http://studio.local:1234",
+    ])
+    func treatsLoopbackAndLocalNetworkHostsAsLocal(_ url: String) {
+        #expect(ModeDataLocality.isLocalURL(url))
+    }
+
+    @Test(arguments: ["https://api.openai.com/v1", "https://localhost.example.com", "not a url", ""])
+    func treatsOtherHostsAsRemote(_ url: String) {
+        #expect(!ModeDataLocality.isLocalURL(url))
+    }
+
+    @Test func classifiesBuiltInEnhancementProviders() {
+        #expect(ModeDataLocality.isOnDevice(.localCLI, modelName: nil))
+        #expect(ModeDataLocality.isOnDevice(.voiceInkRefine, modelName: nil))
+        #expect(!ModeDataLocality.isOnDevice(.openAI, modelName: nil))
+        #expect(!ModeDataLocality.isOnDevice(.anthropic, modelName: nil))
+    }
+}
+
+@MainActor
 struct DictationNoteSessionTests {
     private func mode(_ continuation: DictationContinuation) -> ModeConfig {
         var mode = ModeConfig(name: "Clinic", isAIEnhancementEnabled: true)

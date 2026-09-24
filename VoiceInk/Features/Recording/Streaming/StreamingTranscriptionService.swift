@@ -128,6 +128,8 @@ class StreamingTranscriptionService {
     private var onPartialTranscript: ((String) -> Void)?
     private let metrics = StreamingMetrics()
     private var stopStartedAt: Date?
+    /// False for streaming-only providers, which have no batch endpoint to fall back to.
+    private var canFallBackToBatch = true
     private var firstPartialLogged = false
     private var firstCommitLogged = false
 
@@ -165,6 +167,7 @@ class StreamingTranscriptionService {
 
         let provider = createProvider(for: model)
         self.provider = provider
+        canFallBackToBatch = !(CloudProviderRegistry.provider(for: model.provider)?.isStreamingOnly ?? false)
 
         let selectedLanguage = context.language ?? "auto"
         logger.notice(
@@ -220,6 +223,18 @@ class StreamingTranscriptionService {
         // Finish the chunk source so the send loop drains remaining chunks and exits naturally.
         await drainRemainingChunks()
 
+        // Audio that was dropped or failed to send is missing from the streamed transcript,
+        // while the recorded file has all of it.
+        let afterDrain = metrics.snapshot()
+        if canFallBackToBatch, afterDrain.sentChunks < afterDrain.receivedChunks {
+            logger.warning(
+                "Streaming lost audio sentChunks=\(afterDrain.sentChunks, privacy: .public) receivedChunks=\(afterDrain.receivedChunks, privacy: .public); using batch fallback"
+            )
+            state = .done
+            await cleanupStreaming()
+            return .requiresBatchFallback
+        }
+
         // Providers with a documented terminal acknowledgement expose an authoritative
         // full-transcript stream. All other providers retain the existing committed-event behavior.
         let finalizationWait: StreamingFinalizationWait
@@ -256,7 +271,14 @@ class StreamingTranscriptionService {
             }
             finalText = finalization.text
         case .committedEvent(let signalStream):
-            finalText = await waitForFinalCommit(signalStream: signalStream)
+            let finalCommit = await waitForFinalCommit(signalStream: signalStream)
+            guard finalCommit.received || !canFallBackToBatch else {
+                logger.warning("Provider did not acknowledge the final commit; using batch fallback")
+                state = .done
+                await cleanupStreaming()
+                return .requiresBatchFallback
+            }
+            finalText = finalCommit.text
         }
         if let stopStartedAt {
             logger.notice(
@@ -419,7 +441,7 @@ class StreamingTranscriptionService {
     }
 
     /// Waits for the server to acknowledge our explicit commit, with a 10-second timeout.
-    private func waitForFinalCommit(signalStream: AsyncStream<Void>) async -> String {
+    private func waitForFinalCommit(signalStream: AsyncStream<Void>) async -> (received: Bool, text: String) {
         // Race: wait for commit acknowledgment vs timeout
         let receivedInTime = await withTaskGroup(of: Bool.self) { group in
             group.addTask { @MainActor in
@@ -450,7 +472,7 @@ class StreamingTranscriptionService {
             logger.warning("No transcript received from streaming")
         }
 
-        return committedSegments.isEmpty ? "" : committedSegments.joined(separator: " ")
+        return (receivedInTime, committedSegments.isEmpty ? "" : committedSegments.joined(separator: " "))
     }
 
     /// Waits for a provider's documented end-of-stream acknowledgement and authoritative full transcript.

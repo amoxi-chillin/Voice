@@ -124,6 +124,8 @@ class VoiceEngine: NSObject, ObservableObject {
     let noteSession = DictationNoteSession()
     /// The app that was frontmost when the latest recording stopped.
     private var recordingStopTargetBundleIdentifier: String?
+    /// Set when the lid closing stops the recording, so its text is copied rather than pasted after wake.
+    private var isStoppingForClosedLid = false
     let assistantChat: AssistantChatService?
     private let pipeline: TranscriptionPipeline
 
@@ -195,6 +197,9 @@ class VoiceEngine: NSObject, ObservableObject {
             recordingState = .transcribing
             await recorder.stopRecording()
 
+            let copyReason: TranscriptionDelivery.CopyReason? = isStoppingForClosedLid ? .lidClosed : nil
+            isStoppingForClosedLid = false
+
             if let recordedFile {
                 if !shouldCancelRecording {
                     let transcription =
@@ -203,7 +208,8 @@ class VoiceEngine: NSObject, ObservableObject {
                     await runPipeline(
                         on: transcription,
                         audioURL: recordedFile,
-                        recordingContext: activeRecordingContext
+                        recordingContext: activeRecordingContext,
+                        copyReason: copyReason
                     )
                 } else {
                     await finishActiveRecorderCancellation()
@@ -571,7 +577,8 @@ class VoiceEngine: NSObject, ObservableObject {
     private func runPipeline(
         on transcription: Transcription,
         audioURL: URL,
-        recordingContext: RecordingContextCapture?
+        recordingContext: RecordingContextCapture?,
+        copyReason: TranscriptionDelivery.CopyReason? = nil
     ) async {
         guard
             let transcriptionConfiguration = currentSessionTranscriptionConfiguration
@@ -675,7 +682,8 @@ class VoiceEngine: NSObject, ObservableObject {
                         targetBundleIdentifier: targetBundleIdentifier
                     )
                 }
-            )
+            ),
+            copyReason: copyReason
         )
 
         let didFinishActivePipeline = activePipelineTranscriptionID == transcriptionID
@@ -1158,6 +1166,34 @@ class VoiceEngine: NSObject, ObservableObject {
             name: .promptDidChange,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleLidClosedWithoutExternalDisplay),
+            name: .lidClosedWithoutExternalDisplay,
+            object: nil
+        )
+    }
+
+    @objc private func handleLidClosedWithoutExternalDisplay() {
+        Task { @MainActor in
+            await stopRecordingForClosedLid()
+        }
+    }
+
+    /// Stops a dictation when the laptop is shut with no other display. The recording is kept and
+    /// transcribed, but its text is copied, since pasting after wake could land in the lock screen.
+    func stopRecordingForClosedLid() async {
+        switch recordingState {
+        case .starting:
+            logger.notice("Lid closed without an external display; canceling the recording that was starting")
+            await cancelRecording()
+        case .recording:
+            logger.notice("Lid closed without an external display; stopping the recording")
+            isStoppingForClosedLid = true
+            await toggleRecord()
+        case .idle, .transcribing, .enhancing, .busy:
+            break
+        }
     }
 
     @objc func handlePromptChange() {

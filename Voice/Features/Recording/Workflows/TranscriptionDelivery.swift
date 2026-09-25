@@ -15,6 +15,13 @@ final class TranscriptionDelivery {
         let isAssistantFollowUp: Bool
         /// When set, the text is only pasted if this app is still frontmost; otherwise it is copied.
         var expectedTargetBundleIdentifier: String? = nil
+        /// When set, the text is always copied instead of pasted.
+        var copyReason: CopyReason? = nil
+    }
+
+    enum CopyReason {
+        case targetAppChanged
+        case lidClosed
     }
 
     struct Actions {
@@ -49,10 +56,14 @@ final class TranscriptionDelivery {
         }
 
         if let text = request.text {
+            if let copyReason = request.copyReason {
+                await copyInsteadOfPasting(text, reason: copyReason, actions: actions)
+                return
+            }
             if let expectedTargetBundleIdentifier = request.expectedTargetBundleIdentifier,
                 NSWorkspace.shared.frontmostApplication?.bundleIdentifier != expectedTargetBundleIdentifier
             {
-                await copyInsteadOfPasting(text, actions: actions)
+                await copyInsteadOfPasting(text, reason: .targetAppChanged, actions: actions)
                 return
             }
             await paste(text, output: request.output, actions: actions)
@@ -199,17 +210,29 @@ final class TranscriptionDelivery {
         }
     }
 
-    /// Used when the user has moved to another app, so the text can't land somewhere unintended.
-    private func copyInsteadOfPasting(_ text: String, actions: Actions) async {
+    /// Used when pasting could put the text somewhere unintended, such as another app or the lock screen.
+    private func copyInsteadOfPasting(_ text: String, reason: CopyReason, actions: Actions) async {
         SoundManager.shared.playStopSound()
         await actions.dismiss()
 
         let didCopy = ClipboardManager.setClipboard(text)
-        logger.notice("Target app changed before delivery; copied instead of pasting didCopy=\(didCopy, privacy: .public)")
+        logger.notice(
+            "Copied instead of pasting reason=\(String(describing: reason), privacy: .public) didCopy=\(didCopy, privacy: .public)"
+        )
+
+        let title: String
+        switch (reason, didCopy) {
+        case (.targetAppChanged, true):
+            title = String(localized: "You switched apps, so the note was copied instead of pasted")
+        case (.targetAppChanged, false):
+            title = String(localized: "You switched apps, so the note wasn't pasted. It's saved in History.")
+        case (.lidClosed, true):
+            title = String(localized: "The lid was closed, so your dictation was copied instead of pasted")
+        case (.lidClosed, false):
+            title = String(localized: "The lid was closed, so your dictation wasn't pasted. It's saved in History.")
+        }
         NotificationManager.shared.showNotification(
-            title: didCopy
-                ? String(localized: "You switched apps, so the note was copied instead of pasted")
-                : String(localized: "You switched apps, so the note wasn't pasted. It's saved in History."),
+            title: title,
             type: didCopy ? .info : .warning,
             duration: 6.0
         )

@@ -120,6 +120,16 @@ extension AudioDeviceManager {
     private func handleClamshellChange(isClosed: Bool) {
         logger.notice("Clamshell state changed: \(isClosed ? "closed" : "open", privacy: .public)")
 
+        // The Mac is about to sleep and nobody can be dictating into it, so a recording is stopped
+        // rather than moved to another microphone that would keep listening with the lid shut.
+        if isClosed, !DisplayAvailability.hasExternalDisplay {
+            NotificationCenter.default.post(name: .lidClosedWithoutExternalDisplay, object: nil)
+            if !isRecordingActive {
+                notifyDeviceChange()
+            }
+            return
+        }
+
         guard isRecordingActive else {
             notifyDeviceChange()
             return

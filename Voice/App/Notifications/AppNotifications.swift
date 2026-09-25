@@ -24,4 +24,5 @@ extension Notification.Name {
     static let autoLearnReviewProposalsDidChange = Notification.Name("autoLearnReviewProposalsDidChange")
     static let openFileForTranscription = Notification.Name("openFileForTranscription")
     static let recordingDeviceChangeRequired = Notification.Name("recordingDeviceChangeRequired")
+    static let lidClosedWithoutExternalDisplay = Notification.Name("lidClosedWithoutExternalDisplay")
 }

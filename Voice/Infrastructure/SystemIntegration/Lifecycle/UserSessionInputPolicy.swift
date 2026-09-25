@@ -11,10 +11,16 @@ enum UserSessionInputPolicy {
             return false
         }
 
-        return allowsShortcutHandling(sessionProperties: properties)
+        return allowsShortcutHandling(
+            sessionProperties: properties,
+            isLidClosedWithoutExternalDisplay: DisplayAvailability.isLidClosedWithoutExternalDisplay
+        )
     }
 
-    static func allowsShortcutHandling(sessionProperties: [String: Any]) -> Bool {
+    static func allowsShortcutHandling(
+        sessionProperties: [String: Any],
+        isLidClosedWithoutExternalDisplay: @autoclosure () -> Bool = false
+    ) -> Bool {
         guard booleanValue(sessionProperties[kCGSessionOnConsoleKey as String]) == true else {
             return false
         }
@@ -24,6 +30,13 @@ enum UserSessionInputPolicy {
         }
 
         if booleanValue(sessionProperties[screenIsLockedKey]) == true {
+            return false
+        }
+
+        // Keep-awake utilities such as Amphetamine lock the screen when the lid closes by posting
+        // Control-Command-Q, before the session reports locked. Nobody can press a shortcut on a
+        // closed laptop without another display, so a Control shortcut must not start recording.
+        if isLidClosedWithoutExternalDisplay() {
             return false
         }
 

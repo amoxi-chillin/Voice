@@ -73,7 +73,8 @@ class TranscriptionPipeline {
         onCancel: @escaping () async -> Void,
         onDismiss: @escaping () async -> Void,
         assistant: AssistantHooks = .inactive,
-        note: NoteHooks = .inactive
+        note: NoteHooks = .inactive,
+        copyReason: TranscriptionDelivery.CopyReason? = nil
     ) async {
         let model = transcriptionConfiguration.model
         var finalText: String?
@@ -297,7 +298,8 @@ class TranscriptionPipeline {
                 output: outputForDelivery ?? outputConfiguration(),
                 responseConfig: responseConfig,
                 responseError: responseError,
-                isAssistantFollowUp: assistant.isFollowUp
+                isAssistantFollowUp: assistant.isFollowUp,
+                copyReason: copyReason
             ),
             actions: TranscriptionDelivery.Actions(
                 setState: onStateChange,
